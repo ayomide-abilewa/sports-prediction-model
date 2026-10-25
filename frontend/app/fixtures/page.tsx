@@ -1,6 +1,8 @@
 import React from "react";
 import MatchList from "../../components/MatchList";
 
+export const dynamic = "force-dynamic";
+
 async function getMatches() {
   try {
     const res = await fetch("http://127.0.0.1:8000/api/v1/predictions/matches?limit=120", { cache: "no-store" });

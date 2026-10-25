@@ -26,7 +26,7 @@ async def run_bot_polling(token: str):
 
     console.print(Panel(
         "[bold green]AI Football Probability Engine — Telegram Bot Active![/bold green]\n"
-        f"Connected to token: [cyan]{token[:6]}...{token[-4:]}[/cyan]\n\n"
+        "Bot token loaded; checking Telegram authentication...\n\n"
         "Go to your bot in Telegram and send:\n"
         "  • [bold yellow]/start[/bold yellow] or [bold yellow]/help[/bold yellow]\n"
         "  • [bold yellow]/predictions[/bold yellow]\n"

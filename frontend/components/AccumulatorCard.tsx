@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { Check, Copy, Flame, Layers, Plus, Sparkles } from "lucide-react";
+import React from "react";
+import { Layers, Plus } from "lucide-react";
 import { useSlip } from "./SlipContext";
 
 export interface AccumulatorSlipProps {
@@ -12,7 +12,6 @@ export interface AccumulatorSlipProps {
     joint_probability: number;
     expected_return: number;
     risk_class: string;
-    booking_code?: string;
     leg_count: number;
     legs: Array<{
       match_id: number;
@@ -22,22 +21,13 @@ export interface AccumulatorSlipProps {
       odds: number;
       probability: number;
       expected_value?: number;
+      kickoff?: string;
     }>;
   };
 }
 
 export default function AccumulatorCard({ slip }: AccumulatorSlipProps) {
   const { addLeg, setIsOpen } = useSlip();
-  const [copied, setCopied] = useState(false);
-
-  const code = slip.booking_code || "SB-" + Math.random().toString(36).substring(2, 8).toUpperCase();
-
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const handleLoadAllToBuilder = () => {
     slip.legs.forEach((leg) => {
       addLeg({
@@ -47,6 +37,7 @@ export default function AccumulatorCard({ slip }: AccumulatorSlipProps) {
         selection: leg.selection,
         odds: leg.odds,
         probability: leg.probability,
+        kickoff: leg.kickoff,
       });
     });
     setIsOpen(true);
@@ -84,24 +75,13 @@ export default function AccumulatorCard({ slip }: AccumulatorSlipProps) {
         </div>
       </div>
 
-      {/* Booking Code Banner */}
+      {/* Suggested slip actions */}
       <div className="bg-emerald-950/20 border-b border-gray-800 px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Flame className="h-4 w-4 text-emerald-400 animate-pulse" />
-          <span className="text-xs font-semibold text-emerald-300">SportyBet Booking Code:</span>
-          <span className="font-mono text-base font-extrabold text-white bg-gray-950 px-3 py-1 rounded-md border border-emerald-500/40">
-            {code}
-          </span>
+          <span className="text-xs font-semibold text-emerald-300">Suggested picks</span>
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleCopyCode}
-            className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-bold text-xs transition flex items-center gap-1.5 shadow"
-          >
-            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-            <span>{copied ? "Copied to Clipboard" : "Copy Booking Code"}</span>
-          </button>
           <button
             onClick={handleLoadAllToBuilder}
             className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 font-semibold text-xs border border-gray-700 transition flex items-center gap-1.5"
@@ -150,6 +130,7 @@ export default function AccumulatorCard({ slip }: AccumulatorSlipProps) {
                     selection: leg.selection,
                     odds: leg.odds,
                     probability: leg.probability,
+                    kickoff: leg.kickoff,
                   })
                 }
                 className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-emerald-400 transition"

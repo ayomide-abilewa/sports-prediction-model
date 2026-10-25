@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
-import random
-import string
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -17,15 +16,12 @@ from backend.models.league import Season
 from backend.models.match import Match
 from backend.models.odds import MarketOdds
 from backend.probability.dixon_coles import DixonColesModel
+from backend.ingestion.sportybet_service import (
+    generate_real_sportybet_booking_code,
+    resolve_sportybet_booking_selections,
+)
 
 router = APIRouter(prefix="/accumulators", tags=["Accumulators"])
-
-
-def generate_booking_code(prefix: str = "SB") -> str:
-    """Generates an alphanumeric SportyBet-style booking code."""
-    chars = string.ascii_uppercase + string.digits
-    rand_part = "".join(random.choices(chars, k=6))
-    return f"{prefix}-{rand_part}"
 
 
 class CustomSlipLegRequest(BaseModel):
@@ -35,6 +31,11 @@ class CustomSlipLegRequest(BaseModel):
     selection: str
     odds: float
     probability: float
+    event_id: str | None = None
+    market_id: str | None = None
+    outcome_id: str | None = None
+    specifier: str | None = None
+    kickoff: str | None = None
 
 
 class CustomSlipRequest(BaseModel):
@@ -44,21 +45,64 @@ class CustomSlipRequest(BaseModel):
 
 @router.post("/custom")
 async def build_custom_slip(payload: CustomSlipRequest) -> dict[str, Any]:
-    """Combines user-selected legs into an accumulator with live odds, joint probability, and booking code."""
+    """Books user selections with SportyBet and returns its official share code."""
     if not payload.legs:
         raise HTTPException(status_code=400, detail="Cannot create slip with 0 legs")
 
-    combined_odds = 1.0
+    leg_data = [leg.model_dump() for leg in payload.legs]
+    sporty_selections = []
+    legs_without_sporty_ids = []
     joint_prob = 1.0
-
     for leg in payload.legs:
-        combined_odds *= max(leg.odds, 1.01)
         joint_prob *= max(leg.probability, 0.05)
+        if leg.event_id and leg.market_id and leg.outcome_id:
+            sporty_selections.append({
+                "eventId": leg.event_id,
+                "marketId": leg.market_id,
+                "outcomeId": leg.outcome_id,
+                "specifier": leg.specifier,
+            })
+        else:
+            legs_without_sporty_ids.append(leg.fixture)
+
+    if legs_without_sporty_ids:
+        sporty_selections, unresolved_fixtures = await asyncio.to_thread(
+            resolve_sportybet_booking_selections, leg_data
+        )
+        if unresolved_fixtures:
+            legs_without_sporty_ids = unresolved_fixtures
+        else:
+            legs_without_sporty_ids = []
+
+    if legs_without_sporty_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "SportyBet could not confirm these exact fixture and market selections. "
+                "Choose current picks from Match Centre or remove them: " + ", ".join(legs_without_sporty_ids)
+            ),
+        )
+
+    combined_odds = 1.0
+    for leg, resolved in zip(payload.legs, leg_data):
+        leg.event_id = resolved.get("event_id")
+        leg.market_id = resolved.get("market_id")
+        leg.outcome_id = resolved.get("outcome_id")
+        leg.specifier = resolved.get("specifier")
+        leg.odds = resolved.get("odds", leg.odds)
+        combined_odds *= max(leg.odds, 1.01)
 
     combined_odds = round(combined_odds, 2)
     joint_prob = round(joint_prob, 4)
     exp_return = round((combined_odds * joint_prob) - 1.0, 4)
-    booking_code = generate_booking_code()
+
+    # Attempt to book directly via SportyBet official API
+    sporty_res = await asyncio.to_thread(generate_real_sportybet_booking_code, sporty_selections)
+    if not sporty_res.get("success") or not sporty_res.get("share_code"):
+        detail = sporty_res.get("message") or sporty_res.get("error") or "SportyBet did not return a booking code."
+        raise HTTPException(status_code=502, detail=f"Could not create SportyBet booking code: {detail}")
+    booking_code = sporty_res["share_code"]
+    share_url = sporty_res.get("share_url") or f"https://www.sportybet.com/ng/?shareCode={booking_code}"
 
     risk_rating = (
         "Low Risk" if combined_odds <= 2.8
@@ -73,6 +117,8 @@ async def build_custom_slip(payload: CustomSlipRequest) -> dict[str, Any]:
         "expected_return": exp_return,
         "risk_class": risk_rating,
         "booking_code": booking_code,
+        "share_url": share_url,
+        "is_official_sporty": True,
         "leg_count": len(payload.legs),
         "legs": [leg.dict() for leg in payload.legs],
     }
@@ -188,6 +234,7 @@ async def generate_accumulators(
                     odds=o_val,
                     probability=prob,
                     expected_value=ev,
+                    kickoff=m.kickoff.isoformat(),
                 )
             )
 
@@ -224,7 +271,6 @@ async def generate_accumulators(
                 "joint_probability": j_prob,
                 "expected_return": round((c_odds * j_prob) - 1.0, 4),
                 "risk_class": "Curated Top Probability Slip",
-                "booking_code": generate_booking_code(),
                 "leg_count": len(chosen),
                 "legs": [
                     {
@@ -235,6 +281,7 @@ async def generate_accumulators(
                         "odds": l.odds,
                         "probability": l.probability,
                         "expected_value": l.expected_value,
+                        "kickoff": l.kickoff,
                     }
                     for l in chosen
                 ],
@@ -249,7 +296,6 @@ async def generate_accumulators(
             "joint_probability": s.joint_probability,
             "expected_return": s.expected_return,
             "risk_class": s.risk_class,
-            "booking_code": generate_booking_code(),
             "leg_count": len(s.legs),
             "legs": [
                 {
@@ -260,6 +306,7 @@ async def generate_accumulators(
                     "odds": l.odds,
                     "probability": l.probability,
                     "expected_value": l.expected_value,
+                    "kickoff": l.kickoff,
                 }
                 for l in s.legs
             ],

@@ -10,8 +10,15 @@ from backend.models.league import League
 from backend.models.match import Match
 from backend.models.odds import MarketOdds
 from backend.models.team import Team
+from backend.services.audit_service import build_audit_report
 
 router = APIRouter(prefix="/performance", tags=["Performance"])
+
+
+@router.get("/audit")
+async def get_performance_audit() -> dict[str, Any]:
+    """Returns the comprehensive recent picks audit grading recent fixtures."""
+    return build_audit_report()
 
 
 @router.get("/summary")

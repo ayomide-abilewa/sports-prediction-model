@@ -1,7 +1,7 @@
 import "./globals.css";
 import React from "react";
 import Link from "next/link";
-import { Activity, BarChart3, Database, Layers, ShieldCheck, Trophy } from "lucide-react";
+import { Activity, BarChart3, ClipboardCheck, Database, Layers, ShieldCheck, Trophy } from "lucide-react";
 import { SlipProvider } from "../components/SlipContext";
 import BetSlipDrawer from "../components/BetSlipDrawer";
 
@@ -55,6 +55,13 @@ export default function RootLayout({
               >
                 <Layers className="h-4 w-4 text-purple-400" />
                 <span>Accumulators</span>
+              </Link>
+              <Link
+                href="/audit"
+                className="px-3 py-1.5 rounded-md hover:bg-gray-800 text-gray-300 hover:text-white transition flex items-center gap-1.5"
+              >
+                <ClipboardCheck className="h-4 w-4 text-emerald-400" />
+                <span>Picks Audit</span>
               </Link>
               <Link
                 href="/performance"

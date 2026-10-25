@@ -11,8 +11,34 @@ from backend.config import settings
 from backend.db.engine import AsyncSessionLocal
 from backend.models.match import Match
 from backend.telegram.formatters import TelegramFormatter
+from backend.services.audit_service import build_audit_report
 
 logger = structlog.get_logger()
+
+BOT_KEYBOARD = {
+    "keyboard": [
+        [{"text": "Today's fixtures"}, {"text": "Predictions"}],
+        [{"text": "Bankers"}, {"text": "2x Banker Slip"}],
+        [{"text": "5x Core Slip"}, {"text": "15x Sharp Slip"}],
+        [{"text": "High Yield"}, {"text": "Performance"}],
+        [{"text": "Help"}],
+    ],
+    "resize_keyboard": True,
+    "is_persistent": True,
+    "input_field_placeholder": "Choose an option",
+}
+
+BUTTON_COMMANDS = {
+    "today's fixtures": "/today",
+    "predictions": "/predictions",
+    "bankers": "/bankers",
+    "2x banker slip": "/2_odds",
+    "5x core slip": "/5_odds",
+    "15x sharp slip": "/15_odds",
+    "high yield": "/high_yield",
+    "performance": "/performance",
+    "help": "/help",
+}
 
 
 class TelegramBotService:
@@ -40,6 +66,7 @@ class TelegramBotService:
                         "chat_id": chat_id,
                         "text": text,
                         "parse_mode": parse_mode,
+                    "reply_markup": BOT_KEYBOARD,
                     },
                 )
                 return resp.status_code == 200
@@ -50,13 +77,14 @@ class TelegramBotService:
     async def handle_command(self, chat_id: int | str, command: str, args: list[str] | None = None) -> str:
         """Processes Telegram bot commands with live quantitative data."""
         cmd = command.strip().lower()
+        cmd = BUTTON_COMMANDS.get(cmd, cmd)
         if not cmd.startswith("/"):
             cmd = f"/{cmd}"
 
         if cmd in ("/start", "/help"):
             return (
                 "🤖 *Welcome to the AI Football Probability Engine & Betting Analytics Bot*\n\n"
-                "Available commands:\n"
+                "Tap a menu button below, or use one of these commands:\n"
                 "• `/today` or `/fixtures` - View upcoming fixtures\n"
                 "• `/predictions` - Top validated positive EV predictions\n"
                 "• `/bankers` - Tier 1 high probability banker selections\n"
@@ -64,6 +92,7 @@ class TelegramBotService:
                 "• `/5_odds` - Product 2: Solid Core Multiplier (~5.00x odds)\n"
                 "• `/15_odds` - Product 3: Sharp Multi-League (~15.00x odds)\n"
                 "• `/high_yield` - Product 4: Weekend High-Yield Slip\n"
+                "• `/audit` - Recent Picks Post-Game Audit & Profit/Loss Review\n"
                 "• `/performance` - View model calibration & historical stats\n"
                 "• `/subscribe` - Subscribe to automated matchday notifications"
             )
@@ -143,10 +172,7 @@ class TelegramBotService:
                         slips = resp.json()
                         if slips:
                             slip = slips[0]
-                            booking_code = slip.get("booking_code") or "SB-" + "".join(
-                                [chr(65 + (slip["leg_count"] * 3 + i) % 26) for i in range(6)]
-                            )
-                            return self.formatter.format_accumulator_slip(slip, booking_code=booking_code)
+                            return self.formatter.format_accumulator_slip(slip)
             except Exception:
                 pass
 
@@ -162,7 +188,11 @@ class TelegramBotService:
                     {"fixture": "Sevilla vs Osasuna", "market": "1x2", "selection": "home", "odds": 2.10, "probability": 0.55},
                 ],
             }
-            return self.formatter.format_accumulator_slip(fallback_slip, booking_code="SB-C6SILT")
+            return self.formatter.format_accumulator_slip(fallback_slip)
+
+        elif cmd in ("/audit", "/review"):
+            rep = build_audit_report()
+            return rep["formatted_text"]
 
         elif cmd == "/performance":
             return (

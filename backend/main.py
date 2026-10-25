@@ -5,9 +5,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import structlog
 
-from backend.api import accumulators, fixtures, in_play, matches, performance, predictions
+from backend.api import accumulators, audit, fixtures, in_play, matches, performance, predictions
 from backend.config import settings
 from backend.db.init_db import seed_initial_data
+from backend.ingestion.sportybet_service import start_sporty_background_sync
 
 logger = structlog.get_logger()
 
@@ -21,6 +22,11 @@ async def lifespan(app: FastAPI):
         await seed_initial_data()
     except Exception as exc:
         logger.warning("db_init_warning", error=str(exc))
+    # Start periodic background synchronization for SportyBet live and upcoming odds
+    try:
+        await start_sporty_background_sync()
+    except Exception as exc:
+        logger.warning("sporty_background_sync_warning", error=str(exc))
     yield
     logger.info("server_shutdown")
 
@@ -48,6 +54,7 @@ app.include_router(predictions.router, prefix="/api/v1")
 app.include_router(accumulators.router, prefix="/api/v1")
 app.include_router(performance.router, prefix="/api/v1")
 app.include_router(in_play.router, prefix="/api/v1")
+app.include_router(audit.router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health", tags=["Health"])

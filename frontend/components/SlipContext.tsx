@@ -9,6 +9,11 @@ export interface SlipLeg {
   selection: string;
   odds: number;
   probability: number;
+  event_id?: string;
+  market_id?: string;
+  outcome_id?: string;
+  specifier?: string;
+  kickoff?: string;
 }
 
 interface SlipContextType {
@@ -19,7 +24,10 @@ interface SlipContextType {
   combinedOdds: number;
   jointProbability: number;
   bookingCode: string | null;
-  generateBookingCode: () => Promise<string>;
+  shareUrl: string | null;
+  isOfficialSporty: boolean;
+  bookingError: string | null;
+  generateBookingCode: () => Promise<string | null>;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
 }
@@ -29,6 +37,9 @@ const SlipContext = createContext<SlipContextType | undefined>(undefined);
 export function SlipProvider({ children }: { children: React.ReactNode }) {
   const [legs, setLegs] = useState<SlipLeg[]>([]);
   const [bookingCode, setBookingCode] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [isOfficialSporty, setIsOfficialSporty] = useState(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
   // Load from localStorage on mount
@@ -52,14 +63,24 @@ export function SlipProvider({ children }: { children: React.ReactNode }) {
       const exists = prev.some(
         (l) => l.match_id === leg.match_id && l.market === leg.market && l.selection === leg.selection
       );
-      if (exists) return prev;
-      // Replace only if same match AND same market type (allow mixing different markets like Goals + Corners from same game!)
+      if (exists) {
+        return prev.map((current) =>
+          current.match_id === leg.match_id &&
+          current.market === leg.market &&
+          current.selection === leg.selection
+            ? { ...current, ...leg }
+            : current
+        );
+      }
+      // Replace only if same match AND same market type
       const filtered = prev.filter(
         (l) => !(l.match_id === leg.match_id && l.market === leg.market)
       );
       return [...filtered, leg];
     });
     setBookingCode(null);
+    setShareUrl(null);
+    setBookingError(null);
     setIsOpen(true);
   };
 
@@ -68,11 +89,15 @@ export function SlipProvider({ children }: { children: React.ReactNode }) {
       prev.filter((l) => !(l.match_id === match_id && l.market === market && l.selection === selection))
     );
     setBookingCode(null);
+    setShareUrl(null);
+    setBookingError(null);
   };
 
   const clearSlip = () => {
     setLegs([]);
     setBookingCode(null);
+    setShareUrl(null);
+    setBookingError(null);
   };
 
   const combinedOdds = Number(
@@ -83,27 +108,35 @@ export function SlipProvider({ children }: { children: React.ReactNode }) {
     legs.reduce((acc, leg) => acc * Math.max(leg.probability, 0.05), 1.0).toFixed(4)
   );
 
-  const generateBookingCode = async (): Promise<string> => {
+  const generateBookingCode = async (): Promise<string | null> => {
+    setBookingError(null);
     try {
       const res = await fetch("http://127.0.0.1:8000/api/v1/accumulators/custom", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          slip_name: "Custom Slip",
+          slip_name: "SportyBet Custom Slip",
           legs,
         }),
       });
       if (res.ok) {
         const data = await res.json();
+        if (!data.booking_code || !data.is_official_sporty) {
+          throw new Error("SportyBet did not return an official booking code.");
+        }
         setBookingCode(data.booking_code);
+        setShareUrl(data.share_url || `https://www.sportybet.com/ng/?shareCode=${data.booking_code}`);
+        setIsOfficialSporty(data.is_official_sporty ?? true);
+        if (Array.isArray(data.legs)) setLegs(data.legs);
         return data.booking_code;
       }
-    } catch (e) {}
-    // Client-side fallback code
-    const rand = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const code = `SB-${rand}`;
-    setBookingCode(code);
-    return code;
+      const errorData = await res.json().catch(() => null);
+      throw new Error(errorData?.detail || `Booking request failed (${res.status}).`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not reach the booking service.";
+      setBookingError(message);
+      return null;
+    }
   };
 
   return (
@@ -116,6 +149,9 @@ export function SlipProvider({ children }: { children: React.ReactNode }) {
         combinedOdds,
         jointProbability,
         bookingCode,
+        shareUrl,
+        isOfficialSporty,
+        bookingError,
         generateBookingCode,
         isOpen,
         setIsOpen,

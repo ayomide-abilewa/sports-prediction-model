@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useSlip } from "./SlipContext";
-import { Check, Copy, Flame, Layers, Trash2, X } from "lucide-react";
+import { Check, Copy, ExternalLink, Flame, Layers, Trash2, X } from "lucide-react";
 
 export default function BetSlipDrawer() {
   const {
@@ -12,6 +12,9 @@ export default function BetSlipDrawer() {
     combinedOdds,
     jointProbability,
     bookingCode,
+    shareUrl,
+    isOfficialSporty,
+    bookingError,
     generateBookingCode,
     isOpen,
     setIsOpen,
@@ -138,42 +141,71 @@ export default function BetSlipDrawer() {
 
                 {/* Booking Code Display */}
                 {bookingCode ? (
-                  <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/50 space-y-2 text-center animate-fade-in">
-                    <p className="text-xs text-emerald-300 font-semibold uppercase tracking-wider flex items-center justify-center gap-1.5">
-                      <Flame className="h-4 w-4 text-emerald-400" />
-                      <span>SportyBet Booking Code</span>
-                    </p>
-                    <div className="flex items-center justify-center gap-3">
-                      <span className="font-mono text-2xl font-black text-white tracking-widest bg-gray-950 px-4 py-1.5 rounded-lg border border-emerald-500/40">
+                  <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/50 space-y-3 text-center animate-fade-in">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-emerald-300 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                        <Flame className="h-4 w-4 text-emerald-400" />
+                        <span>SportyBet Booking Code</span>
+                      </span>
+                      {isOfficialSporty && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-900/60 text-emerald-300 border border-emerald-700">
+                          Verified Official
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="font-mono text-2xl font-black text-white tracking-widest bg-gray-950 px-4 py-2 rounded-xl border border-emerald-500/40">
                         {bookingCode}
                       </span>
                       <button
                         onClick={handleCopy}
-                        className="p-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-bold transition flex items-center gap-1.5 text-xs"
+                        className="p-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-bold transition flex items-center gap-1 text-xs shadow-md"
+                        title="Copy SportyBet Code"
                       >
                         {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                         <span>{copied ? "Copied" : "Copy"}</span>
                       </button>
                     </div>
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      Paste this code into SportyBet / Bet9ja to load this exact slip.
+
+                    {shareUrl && (
+                      <a
+                        href={shareUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs shadow-md shadow-red-600/30 transition flex items-center justify-center gap-1.5"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        <span>Open Directly on SportyBet.com</span>
+                      </a>
+                    )}
+
+                    <p className="text-[11px] text-gray-400">
+                      Enter code <strong className="text-white">{bookingCode}</strong> in SportyBet's "Load Code" box, or click the red button above to load selections immediately.
                     </p>
                   </div>
                 ) : (
-                  <button
-                    onClick={handleGenerate}
-                    disabled={loading}
-                    className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-extrabold text-sm shadow-lg shadow-emerald-500/20 transition flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    {loading ? (
-                      <span>Generating Code...</span>
-                    ) : (
-                      <>
-                        <Flame className="h-4 w-4" />
-                        <span>Generate Booking Code (SportyBet)</span>
-                      </>
+                  <>
+                    {bookingError && (
+                      <p role="alert" className="rounded-lg border border-red-800 bg-red-950/40 p-3 text-xs text-red-200">
+                        {bookingError}
+                      </p>
                     )}
-                  </button>
+                    <button
+                      onClick={handleGenerate}
+                      disabled={loading}
+                      className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-extrabold text-sm shadow-lg shadow-emerald-500/20 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {loading ? (
+                        <span>Generating Code...</span>
+                      ) : (
+                        <>
+                          <Flame className="h-4 w-4" />
+                          <span>Generate Booking Code (SportyBet)</span>
+                        </>
+                      )}
+                    </button>
+                  </>
                 )}
               </div>
             )}

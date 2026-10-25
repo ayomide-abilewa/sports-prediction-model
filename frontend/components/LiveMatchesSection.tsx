@@ -277,78 +277,19 @@ export default function LiveMatchesSection({ matches }: { matches: LiveMatchItem
                     {isSurestInSlip ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                     <span>{isSurestInSlip ? "In Slip" : "+ Carry This Live"}</span>
                   </button>
-                  <button
-                    onClick={() => handleMixLivePicks(activeMatch)}
-                    className="px-3.5 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 font-semibold text-xs border border-gray-700 transition flex items-center gap-1"
-                    title="Add all live high conviction picks"
-                  >
-                    <Zap className="h-3.5 w-3.5 text-amber-400" />
-                    <span>Mix Picks</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Live Narrative */}
-              {activeMatch.live_narrative && (
-                <p className="text-xs text-gray-300 leading-relaxed border-t border-gray-800/80 pt-2.5">
-                  <span className="font-bold text-white">Tactical In-Play Outlook:</span> {activeMatch.live_narrative}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Top In-Play Markets Grid */}
-          <div className="space-y-2">
-            <h4 className="text-xs uppercase font-bold text-gray-400 tracking-wider">
-              Top Live In-Play Value Selections ({activeMatch.top_in_play_picks?.length || 0})
-            </h4>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {activeMatch.top_in_play_picks?.map((pick, pIdx) => {
-                const inSlip = legs.some(
-                  (l) => l.match_id === activeMatch.match_id && l.selection === pick.selection
-                );
-                return (
-                  <div
-                    key={pIdx}
-                    className="p-3 rounded-xl bg-gray-900/80 border border-gray-800 hover:border-gray-700 flex items-center justify-between transition"
-                  >
-                    <div className="flex-1 pr-2">
-                      <p className="text-[10px] font-mono text-red-400 uppercase">{pick.market}</p>
-                      <p className="text-xs font-bold text-white mt-0.5">{pick.selection}</p>
-                      <p className="text-[11px] text-gray-400 font-mono mt-0.5">
-                        Prob: <span className="text-emerald-400 font-semibold">{(pick.probability * 100).toFixed(0)}%</span> • Odds:{" "}
-                        <span className="text-white font-bold">{pick.live_odds.toFixed(2)}</span>
-                      </p>
-                    </div>
-
-                    <button
-                      onClick={() =>
-                        addLeg({
-                          match_id: activeMatch.match_id,
-                          fixture: activeMatch.fixture,
-                          market: pick.market,
-                          selection: pick.selection,
-                          odds: pick.live_odds,
-                          probability: pick.probability,
-                        })
-                      }
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
-                        inSlip
-                          ? "bg-gray-800 text-emerald-400 border border-emerald-500/40"
-                          : "bg-gray-800 hover:bg-emerald-500 hover:text-gray-950 text-white border border-gray-700"
-                      }`}
-                    >
-                      {inSlip ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-                      <span>{inSlip ? "Added" : "+ Slip"}</span>
-                    </button>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+
+                {/* Live Narrative */}
+                {activeMatch.live_narrative && (
+                  <p className="text-xs text-gray-300 leading-relaxed border-t border-gray-800/80 pt-2.5">
+                    <span className="font-bold text-white">Tactical In-Play Outlook:</span> {activeMatch.live_narrative}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
 }

@@ -21,6 +21,7 @@ class CandidateLeg:
     odds: float
     probability: float
     expected_value: float
+    kickoff: str | None = None
 
 
 @dataclass

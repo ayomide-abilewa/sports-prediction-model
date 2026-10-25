@@ -14,6 +14,10 @@ export interface SurestPickItem {
   ev: number;
   confidence_tier: string;
   rationale?: string;
+  event_id?: string;
+  market_id?: string;
+  outcome_id?: string;
+  specifier?: string;
 }
 
 export interface FixtureItem {
@@ -28,6 +32,7 @@ export interface FixtureItem {
   ft_home_goals?: number;
   ft_away_goals?: number;
   surest_prediction?: SurestPickItem;
+  best_prop?: SurestPickItem;
   top_surest_picks?: SurestPickItem[];
   ai_analysis?: string;
   expected_goals?: {
@@ -221,70 +226,175 @@ export default function MatchList({ fixtures }: { fixtures: FixtureItem[] }) {
                   )}
                 </div>
 
-                {/* AI TOP SUREST PREDICTIONS (MULTIPLE PICKS) */}
-                {surestPicks.length > 0 && (
-                  <div className="space-y-2 bg-gray-900/80 rounded-xl p-3.5 border border-emerald-500/30">
+                {/* THE ONE SUREST PREDICTION */}
+                {match.surest_prediction ? (
+                  <div className="bg-gradient-to-br from-emerald-950/40 via-gray-900 to-gray-950 rounded-xl p-4 border border-emerald-500/40 shadow-lg space-y-3">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-bold uppercase tracking-wider">
-                        <Sparkles className="h-3.5 w-3.5" />
-                        <span>Surest Predictions ({surestPicks.length} High Conviction)</span>
-                      </div>
-                      <button
-                        onClick={() => handleMixSurestPicks(match)}
-                        className="text-[11px] font-bold text-emerald-300 hover:text-emerald-200 bg-emerald-950/80 hover:bg-emerald-900/80 border border-emerald-800 px-2.5 py-1 rounded-lg transition flex items-center gap-1"
-                        title="Add all high conviction picks to your slip"
-                      >
-                        <Zap className="h-3 w-3 text-emerald-400" />
-                        <span>Mix All Picks</span>
-                      </button>
+                      <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-extrabold uppercase tracking-wider">
+                        <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+                        <span>Surest Pick to Carry</span>
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-bold">
+                        {match.surest_prediction.confidence_tier || "Bankers Tier"}
+                      </span>
                     </div>
 
-                    <div className="space-y-1.5 pt-1">
-                      {surestPicks.map((pick, pIdx) => {
-                        const inSlip = legs.some(
-                          (l) => l.match_id === match.id && l.selection === pick.selection
-                        );
-                        return (
-                          <div
-                            key={pIdx}
-                            className="flex items-center justify-between text-xs p-2 rounded-lg bg-gray-950/60 border border-gray-800/80 hover:border-gray-700 transition"
-                          >
-                            <div className="flex-1 pr-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-mono uppercase text-gray-400 px-1.5 py-0.5 rounded bg-gray-900 border border-gray-800">
-                                  {pick.market}
-                                </span>
-                                <span className="font-bold text-white text-xs">{pick.selection}</span>
-                              </div>
-                              <p className="text-[11px] text-gray-400 font-mono mt-0.5">
-                                Prob: <span className="text-emerald-400 font-semibold">{(pick.prob * 100).toFixed(0)}%</span> • Odds:{" "}
-                                <span className="text-white font-bold">{pick.odds.toFixed(2)}</span>
-                              </p>
-                            </div>
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] font-mono uppercase text-gray-400 px-1.5 py-0.5 rounded bg-gray-900 border border-gray-800">
+                            {match.surest_prediction.market}
+                          </span>
+                          <h4 className="font-black text-white text-base sm:text-lg mt-1">
+                            {match.surest_prediction.selection}
+                          </h4>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xs text-gray-400 font-mono block">Sporty Odds</span>
+                          <span className="text-lg font-black text-white font-mono">
+                            {match.surest_prediction.odds.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
 
+                      {/* Conviction Bar */}
+                      <div className="mt-2.5">
+                        <div className="flex justify-between text-[11px] font-mono text-gray-400 mb-1">
+                          <span>Model Win Probability</span>
+                          <span className="text-emerald-400 font-bold">
+                            {(match.surest_prediction.prob * 100).toFixed(0)}% Conviction
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.min(100, Math.max(10, match.surest_prediction.prob * 100))}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Rationale */}
+                      {match.surest_prediction.rationale && (
+                        <p className="text-xs text-gray-300 mt-2.5 leading-relaxed bg-gray-950/60 p-2.5 rounded-lg border border-gray-800/80">
+                          {match.surest_prediction.rationale}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Single Clean Add Button */}
+                    {(() => {
+                      const inSlip = legs.some(
+                        (l) => l.match_id === match.id && l.selection === match.surest_prediction?.selection
+                      );
+                      return (
+                        <button
+                          onClick={() => {
+                            if (match.surest_prediction) {
+                              addLeg({
+                                match_id: match.id,
+                                fixture: match.fixture,
+                                market: match.surest_prediction.market,
+                                selection: match.surest_prediction.selection,
+                                odds: match.surest_prediction.odds,
+                                probability: match.surest_prediction.prob,
+                                event_id: match.surest_prediction.event_id,
+                                market_id: match.surest_prediction.market_id,
+                                outcome_id: match.surest_prediction.outcome_id,
+                                specifier: match.surest_prediction.specifier,
+                              });
+                            }
+                          }}
+                          className={`w-full py-2.5 rounded-xl font-extrabold text-xs transition flex items-center justify-center gap-2 ${
+                            inSlip
+                              ? "bg-gray-800 text-emerald-400 border border-emerald-500/50"
+                              : "bg-emerald-500 hover:bg-emerald-400 text-gray-950 shadow-md shadow-emerald-500/20"
+                          }`}
+                        >
+                          {inSlip ? (
+                            <>
+                              <Check className="h-4 w-4" />
+                              <span>Surest Pick Added to Slip</span>
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="h-4 w-4" />
+                              <span>+ Add Surest Pick to Slip</span>
+                            </>
+                          )}
+                        </button>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <div className="py-4 text-center text-xs text-gray-500">
+                    Poisson simulation computing match distributions...
+                  </div>
+                )}
+
+                {/* 🔥 THE ONE BEST PROP (Corners / Cards / 1H) */}
+                {match.best_prop && (
+                  <div className="bg-gradient-to-br from-amber-950/20 via-gray-900 to-gray-950 rounded-xl p-3.5 border border-amber-500/30 shadow-md space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 text-xs text-amber-400 font-extrabold uppercase tracking-wider">
+                        <Flame className="h-3.5 w-3.5 text-amber-400" />
+                        <span>Best Prop Selection</span>
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800 font-bold">
+                        {match.best_prop.confidence_tier || "Sharp Prop"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <span className="text-[10px] font-mono uppercase text-gray-400 px-1.5 py-0.5 rounded bg-gray-900 border border-gray-800">
+                          {match.best_prop.market}
+                        </span>
+                        <h5 className="font-extrabold text-white text-sm mt-0.5">
+                          {match.best_prop.selection}
+                        </h5>
+                        <p className="text-[11px] font-mono text-amber-400 mt-0.5">
+                          Model Prob: <span className="text-white font-bold">{(match.best_prop.prob * 100).toFixed(1)}%</span>
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1.5">
+                        <span className="text-base font-black text-white font-mono">
+                          @{match.best_prop.odds.toFixed(2)}
+                        </span>
+                        {(() => {
+                          const propInSlip = legs.some(
+                            (l) => l.match_id === match.id && l.selection === match.best_prop?.selection
+                          );
+                          return (
                             <button
-                              onClick={() =>
-                                addLeg({
-                                  match_id: match.id,
-                                  fixture: match.fixture,
-                                  market: pick.market,
-                                  selection: pick.selection,
-                                  odds: pick.odds,
-                                  probability: pick.prob,
-                                })
-                              }
-                              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
-                                inSlip
-                                  ? "bg-gray-800 text-emerald-400 border border-emerald-500/40"
-                                  : "bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-extrabold shadow-sm"
+                              onClick={() => {
+                                if (match.best_prop) {
+                                  addLeg({
+                                    match_id: match.id,
+                                    fixture: match.fixture,
+                                    market: match.best_prop.market,
+                                    selection: match.best_prop.selection,
+                                    odds: match.best_prop.odds,
+                                    probability: match.best_prop.prob,
+                                    event_id: match.best_prop.event_id,
+                                    market_id: match.best_prop.market_id,
+                                    outcome_id: match.best_prop.outcome_id,
+                                    specifier: match.best_prop.specifier,
+                                  });
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-lg font-bold text-xs transition flex items-center gap-1 ${
+                                propInSlip
+                                  ? "bg-gray-800 text-amber-400 border border-amber-500/50"
+                                  : "bg-amber-500 hover:bg-amber-400 text-gray-950 font-black shadow-md shadow-amber-500/20"
                               }`}
                             >
-                              {inSlip ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-                              <span>{inSlip ? "Added" : "+ Slip"}</span>
+                              {propInSlip ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                              <span>{propInSlip ? "In Slip" : "+ Prop"}</span>
                             </button>
-                          </div>
-                        );
-                      })}
+                          );
+                        })()}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -293,13 +403,13 @@ export default function MatchList({ fixtures }: { fixtures: FixtureItem[] }) {
                 <div className="flex items-center justify-between pt-2 border-t border-gray-800/60">
                   <button
                     onClick={() => setSelectedMatch(match as any)}
-                    className="text-xs font-bold text-gray-300 hover:text-white flex items-center gap-1.5 transition"
+                    className="text-xs font-bold text-gray-300 hover:text-white flex items-center gap-1.5 transition py-1"
                   >
                     <Activity className="h-3.5 w-3.5 text-emerald-400" />
-                    <span>View All Markets & AI Outlook</span>
+                    <span>View All Markets (Corners, Cards, Handicaps)</span>
                   </button>
                   <span className="text-[11px] font-mono text-gray-500">
-                    {match.markets?.length || 15}+ Markets Modeled
+                    SportyBet Live Odds
                   </span>
                 </div>
               </div>
