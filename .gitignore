@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Database
+*.db
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ML artifacts
+models/*.joblib
+models/*.pkl
+mlruns/
+
+# Logs
+logs/
+*.log
+
+# Node
+node_modules/
+frontend/.next/
+frontend/out/
+
+# Docker
+docker-compose.override.yml
+
+# Data cache
+.cache/
+data/raw/
+data/cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Coverage
+htmlcov/
+.coverage
+coverage.xml
