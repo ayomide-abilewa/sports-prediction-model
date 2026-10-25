@@ -195,3 +195,74 @@ class IngestionScheduler:
             await session.commit()
 
         return result
+
+    async def ingest_upcoming_fixtures(self) -> IngestionResult:
+        """Ingests all upcoming and today's scheduled match fixtures with real bookmaker odds."""
+        result = IngestionResult(source="football_data_uk", operation="ingest_upcoming_fixtures")
+        records = await self.fduk_adapter.fetch_upcoming_fixtures()
+        result.records_processed = len(records)
+
+        async with AsyncSessionLocal() as session:
+            try:
+                bm_cache = await self.get_bookmaker_cache(session)
+                leagues_res = await session.execute(select(League))
+                leagues_by_code = {l.code: l for l in leagues_res.scalars().all()}
+
+                for rec in records:
+                    league = leagues_by_code.get(rec["league_code"])
+                    if not league:
+                        continue
+
+                    season = await self.get_or_create_season(session, league, rec["season_code"])
+                    home_team = await self.get_or_create_team(session, rec["home_team"], league.country)
+                    away_team = await self.get_or_create_team(session, rec["away_team"], league.country)
+
+                    # Look for existing scheduled fixture
+                    res_m = await session.execute(
+                        select(Match).where(
+                            Match.season_id == season.id,
+                            Match.home_team_id == home_team.id,
+                            Match.away_team_id == away_team.id,
+                            Match.kickoff == rec["kickoff"],
+                        )
+                    )
+                    match = res_m.scalar_one_or_none()
+
+                    if not match:
+                        match = Match(
+                            season_id=season.id,
+                            home_team_id=home_team.id,
+                            away_team_id=away_team.id,
+                            kickoff=rec["kickoff"],
+                            status="scheduled",
+                            source=rec["source"],
+                        )
+                        session.add(match)
+                        await session.flush()
+                        result.records_new += 1
+
+                        for o_data in rec.get("odds", []):
+                            bm = bm_cache.get(o_data["bookmaker_code"])
+                            if bm:
+                                odds_entry = MarketOdds(
+                                    match_id=match.id,
+                                    bookmaker_id=bm.id,
+                                    market_type=o_data["market_type"],
+                                    selection=o_data["selection"],
+                                    odds=o_data["odds"],
+                                    implied_prob=round(1.0 / o_data["odds"], 4) if o_data["odds"] > 0 else None,
+                                    is_opening=True,
+                                )
+                                session.add(odds_entry)
+                    else:
+                        result.records_skipped += 1
+
+                await session.commit()
+                result.complete()
+            except Exception as exc:
+                await session.rollback()
+                logger.error("ingest_upcoming_error", error=str(exc))
+                result.errors.append(str(exc))
+                result.complete("failed")
+
+        return result

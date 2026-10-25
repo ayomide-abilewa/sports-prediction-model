@@ -6,6 +6,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.betting.confidence import ConfidenceClassifier
 from backend.db.engine import get_db
 from backend.models.league import Season
 from backend.models.match import Match, MatchStatistics
@@ -16,6 +17,7 @@ from backend.probability.markets import MarketEngine
 import pandas as pd
 
 router = APIRouter(prefix="/matches", tags=["Matches"])
+classifier = ConfidenceClassifier()
 
 
 @router.get("/{match_id}")
@@ -41,20 +43,22 @@ async def get_match_detail(
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
 
-    # Fetch recent matches for this league to fit Dixon-Coles dynamically
-    season_id = match.season_id
+    # Fetch finished matches across DB to train Dixon-Coles
     hist_stmt = (
         select(Match)
         .options(selectinload(Match.home_team), selectinload(Match.away_team))
-        .where(Match.season_id == season_id, Match.status == "finished")
+        .where(Match.status == "finished")
         .order_by(desc(Match.kickoff))
-        .limit(380)
+        .limit(200)
     )
     hist_res = await db.execute(hist_stmt)
     hist_matches = hist_res.scalars().all()
 
     model_prediction: dict[str, Any] | None = None
-    if len(hist_matches) >= 30:
+    surest_pick: dict[str, Any] | None = None
+    ai_analysis_text = ""
+
+    if len(hist_matches) >= 20:
         hist_records = [
             {
                 "home_team": m.home_team.name,
@@ -69,6 +73,42 @@ async def get_match_detail(
         try:
             dc.fit(pd.DataFrame(hist_records))
             model_prediction = dc.predict_match(match.home_team.name, match.away_team.name)
+
+            p_1x2 = model_prediction["1x2"]
+            p_totals = model_prediction["totals"]
+            p_btts = model_prediction["btts"]
+            exp_goals = model_prediction["expected_goals"]
+
+            # Pick candidates
+            odds_map = {f"{o.market_type}_{o.selection}": o.odds for o in match.odds}
+            picks = [
+                {"market": "1X2", "selection": "Home Win", "prob": p_1x2["home"], "key": "1x2_home"},
+                {"market": "1X2", "selection": "Draw", "prob": p_1x2["draw"], "key": "1x2_draw"},
+                {"market": "1X2", "selection": "Away Win", "prob": p_1x2["away"], "key": "1x2_away"},
+                {"market": "Goals", "selection": "Over 1.5 Goals", "prob": p_totals["over_under_1.5"]["over"], "key": "over_under_1.5_over"},
+                {"market": "Goals", "selection": "Under 2.5 Goals", "prob": p_totals["over_under_2.5"]["under"], "key": "over_under_2.5_under"},
+                {"market": "Goals", "selection": "Over 2.5 Goals", "prob": p_totals["over_under_2.5"]["over"], "key": "over_under_2.5_over"},
+                {"market": "BTTS", "selection": "Both Teams to Score (Yes)", "prob": p_btts["yes"], "key": "btts_yes"},
+            ]
+
+            for p in picks:
+                raw_o = odds_map.get(p["key"])
+                p["fair_odds"] = MarketEngine.calculate_fair_odds(p["prob"])
+                p["odds"] = raw_o if (raw_o and raw_o > 1.0) else round(p["fair_odds"] * 0.94, 2)
+                p["ev"] = MarketEngine.calculate_expected_value(p["prob"], p["odds"])
+                p["confidence_tier"] = "Tier 1 – Bankers" if p["prob"] >= 0.70 else ("Tier 2 – Solid Core" if p["prob"] >= 0.55 else "Sharp Value")
+
+            # Surest pick is the highest probability selection
+            picks.sort(key=lambda x: x["prob"], reverse=True)
+            surest_pick = picks[0]
+
+            # Construct tactical analysis narrative
+            ai_analysis_text = (
+                f"Statistical simulation projects a scoreline centered around {exp_goals['home']} for {match.home_team.name} "
+                f"and {exp_goals['away']} for {match.away_team.name} (total expected goals: {exp_goals['total']}). "
+                f"The highest conviction mathematical selection for this match is {surest_pick['selection']} ({surest_pick['market']}) "
+                f"at {surest_pick['prob']*100:.1f}% estimated probability with available decimal odds of {surest_pick['odds']:.2f}."
+            )
         except Exception:
             pass
 
@@ -119,6 +159,8 @@ async def get_match_detail(
             "ht_home": match.ht_home_goals,
             "ht_away": match.ht_away_goals,
         },
+        "surest_prediction": surest_pick,
+        "ai_analysis": ai_analysis_text,
         "statistics": stats_data,
         "odds": odds_data,
         "model_analysis": model_prediction,

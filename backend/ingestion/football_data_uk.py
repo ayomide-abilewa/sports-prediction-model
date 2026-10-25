@@ -225,3 +225,86 @@ class FootballDataUKAdapter(BaseAdapter):
 
         logger.info("fduk_parsed_matches", count=len(records), league=league_code, season=season)
         return records
+
+    async def fetch_upcoming_fixtures(self) -> list[dict[str, Any]]:
+        """Downloads and parses upcoming/scheduled match fixtures with real bookmaker odds."""
+        url = f"{settings.fduk_base_url}/fixtures.csv"
+        logger.info("fetching_upcoming_fixtures_csv", url=url)
+        try:
+            content = await self.fetch_csv_content(url)
+        except Exception as exc:
+            logger.error("fduk_upcoming_fetch_error", url=url, error=str(exc))
+            return []
+
+        df = pd.read_csv(io.StringIO(content))
+        if "HomeTeam" not in df.columns or "Div" not in df.columns:
+            logger.error("fduk_invalid_upcoming_columns", columns=list(df.columns))
+            return []
+
+        df = df.dropna(subset=["HomeTeam", "AwayTeam", "Div"])
+        reverse_map = {v: k for k, v in self.LEAGUE_MAP.items()}
+        records: list[dict[str, Any]] = []
+
+        for _, row in df.iterrows():
+            div = str(row.get("Div", "")).strip()
+            league_code = reverse_map.get(div)
+            if not league_code:
+                continue
+
+            raw_home = str(row.get("HomeTeam", "")).strip()
+            raw_away = str(row.get("AwayTeam", "")).strip()
+            if not raw_home or not raw_away:
+                continue
+
+            home_team, _ = team_mapper.resolve(raw_home)
+            away_team, _ = team_mapper.resolve(raw_away)
+
+            kickoff = self.parse_kickoff_datetime(row.get("Date"), row.get("Time"))
+
+            # Odds
+            odds_list: list[dict[str, Any]] = []
+            for prefix, bm_code in [("B365", "B365"), ("PP", "PS"), ("Avg", "Avg"), ("Max", "Max")]:
+                h_val = row.get(f"{prefix}H")
+                d_val = row.get(f"{prefix}D")
+                a_val = row.get(f"{prefix}A")
+                if pd.notna(h_val) and pd.notna(d_val) and pd.notna(a_val):
+                    try:
+                        odds_list.extend([
+                            {"bookmaker_code": bm_code, "market_type": "1x2", "selection": "home", "odds": float(h_val)},
+                            {"bookmaker_code": bm_code, "market_type": "1x2", "selection": "draw", "odds": float(d_val)},
+                            {"bookmaker_code": bm_code, "market_type": "1x2", "selection": "away", "odds": float(a_val)},
+                        ])
+                    except (ValueError, TypeError):
+                        pass
+
+                over_val = row.get(f"{prefix}>2.5")
+                under_val = row.get(f"{prefix}<2.5")
+                if pd.notna(over_val) and pd.notna(under_val):
+                    try:
+                        odds_list.extend([
+                            {"bookmaker_code": bm_code, "market_type": "over_under_2.5", "selection": "over", "odds": float(over_val)},
+                            {"bookmaker_code": bm_code, "market_type": "over_under_2.5", "selection": "under", "odds": float(under_val)},
+                        ])
+                    except (ValueError, TypeError):
+                        pass
+
+            match_record = {
+                "league_code": league_code,
+                "season_code": "2425",
+                "home_team": home_team,
+                "away_team": away_team,
+                "kickoff": kickoff,
+                "status": "scheduled",
+                "ft_home_goals": None,
+                "ft_away_goals": None,
+                "ht_home_goals": None,
+                "ht_away_goals": None,
+                "source": self.source_name,
+                "stats": [],
+                "odds": odds_list,
+                "quality_score": 0.85,
+            }
+            records.append(match_record)
+
+        logger.info("fduk_parsed_upcoming", count=len(records))
+        return records

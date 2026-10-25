@@ -1,6 +1,7 @@
 import React from "react";
 import Link from "next/link";
-import { Check, Flame, Layers, ShieldCheck, Sparkles, Trophy } from "lucide-react";
+import { Flame, Layers, ShieldCheck, Sparkles, Trophy } from "lucide-react";
+import AccumulatorCard from "../../components/AccumulatorCard";
 
 async function getAccumulators(category: string) {
   try {
@@ -33,7 +34,7 @@ export default async function AccumulatorsPage({
       <div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white">Accumulator & Combination Engine</h1>
         <p className="text-gray-400 text-sm mt-1">
-          Constraint-optimized accumulator slips with correlation detection and mathematical edge ranking.
+          Constraint-optimized accumulator slips with correlation detection, SportyBet booking code generation, and mathematical edge ranking.
         </p>
       </div>
 
@@ -68,70 +69,16 @@ export default async function AccumulatorsPage({
       {/* Generated Slips Display */}
       <div className="space-y-6">
         {slips.length === 0 ? (
-          <div className="bg-[#111827] border border-gray-800 rounded-xl p-8 text-center text-gray-400">
+          <div className="bg-[#111827] border border-gray-800 rounded-2xl p-8 text-center text-gray-400">
             <Layers className="h-8 w-8 mx-auto mb-3 text-gray-600" />
             <p className="font-semibold text-white">No active combinations generated for this recipe</p>
             <p className="text-xs text-gray-500 mt-1">
-              Ensure the FastAPI backend is running with sufficient historical fixtures seeded.
+              Ensure the FastAPI backend is running with upcoming fixtures seeded.
             </p>
           </div>
         ) : (
           slips.map((slip: any, index: number) => (
-            <div key={index} className="bg-[#111827] border border-gray-800 rounded-xl overflow-hidden">
-              <div className="bg-gray-900/80 px-6 py-4 border-b border-gray-800 flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <h3 className="font-bold text-white text-base sm:text-lg flex items-center gap-2">
-                    <span>{slip.slip_name}</span>
-                    <span className="text-xs px-2.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono">
-                      {slip.risk_class}
-                    </span>
-                  </h3>
-                  <p className="text-xs text-gray-400 mt-0.5">{slip.leg_count} Legs • Correlation-checked</p>
-                </div>
-
-                <div className="flex items-center gap-6">
-                  <div className="text-right">
-                    <p className="text-xs text-gray-400 uppercase">Combined Odds</p>
-                    <p className="text-xl font-extrabold text-emerald-400 font-mono">{slip.combined_odds.toFixed(2)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-400 uppercase">Joint Win Prob</p>
-                    <p className="text-xl font-extrabold text-white font-mono">{(slip.joint_probability * 100).toFixed(1)}%</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-400 uppercase">Expected Edge</p>
-                    <p className="text-xl font-extrabold text-purple-400 font-mono">+{(slip.expected_return * 100).toFixed(1)}%</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Legs Table */}
-              <div className="divide-y divide-gray-800/60">
-                {slip.legs.map((leg: any, lIndex: number) => (
-                  <div key={lIndex} className="px-6 py-3.5 flex items-center justify-between text-sm hover:bg-gray-800/30 transition">
-                    <div className="flex items-center gap-3">
-                      <span className="h-6 w-6 rounded-full bg-gray-800 text-gray-400 font-mono text-xs flex items-center justify-center font-bold">
-                        {lIndex + 1}
-                      </span>
-                      <div>
-                        <p className="font-semibold text-white">{leg.fixture}</p>
-                        <p className="text-xs text-gray-400 font-mono">{leg.market} • <span className="text-emerald-400 font-bold capitalize">{leg.selection}</span></p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-6 text-right">
-                      <div>
-                        <p className="text-xs text-gray-400">Model Prob</p>
-                        <p className="font-mono text-xs text-gray-300 font-medium">{(leg.probability * 100).toFixed(0)}%</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-400">Leg Odds</p>
-                        <p className="font-mono text-sm font-bold text-white">{leg.odds.toFixed(2)}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <AccumulatorCard key={index} slip={slip} />
           ))
         )}
       </div>

@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
-from scipy.stats import poisson
+from scipy.stats import nbinom, poisson
 import structlog
 
 logger = structlog.get_logger()
@@ -235,7 +235,7 @@ class DixonColesModel:
         return matrix
 
     def predict_match(self, home_team: str, away_team: str) -> dict[str, Any]:
-        """Calculates expected goals, scoreline probabilities, and all standard markets."""
+        """Calculates expected goals, scoreline probabilities, team totals, handicaps, corners, cards, and all standard markets."""
         matrix = self.predict_scoreline_matrix(home_team, away_team)
 
         alpha_h = self.attack_strengths.get(home_team, 0.0)
@@ -246,12 +246,12 @@ class DixonColesModel:
         exp_home_goals = float(np.exp(alpha_h + beta_a + self.home_advantage))
         exp_away_goals = float(np.exp(alpha_a + beta_h))
 
-        # 1X2 Probabilities
+        # 1X2 Probabilities (Who will win)
         prob_home = float(np.sum(np.tril(matrix, -1).T))  # i > j
         prob_draw = float(np.sum(np.diag(matrix)))         # i == j
         prob_away = float(np.sum(np.triu(matrix, 1).T))  # i < j
 
-        # Double Chance
+        # Double Chance (1X, X2, 12)
         prob_1x = prob_home + prob_draw
         prob_x2 = prob_draw + prob_away
         prob_12 = prob_home + prob_away
@@ -261,12 +261,11 @@ class DixonColesModel:
         prob_dnb_home = prob_home / dnb_denom if dnb_denom > 0 else 0.5
         prob_dnb_away = prob_away / dnb_denom if dnb_denom > 0 else 0.5
 
-        # Both Teams to Score (BTTS)
-        # BTTS No is sum of row 0 and col 0 minus (0,0)
+        # Both Teams to Score (GG / NG)
         btts_no = float(np.sum(matrix[0, :]) + np.sum(matrix[:, 0]) - matrix[0, 0])
         btts_yes = float(1.0 - btts_no)
 
-        # Over / Under Markets
+        # Match Total Goals (Over / Under 0.5, 1.5, 2.5, 3.5, 4.5)
         totals: dict[str, dict[str, float]] = {}
         for line in (0.5, 1.5, 2.5, 3.5, 4.5):
             over_p = 0.0
@@ -277,6 +276,76 @@ class DixonColesModel:
             totals[f"over_under_{line}"] = {
                 "over": round(float(over_p), 4),
                 "under": round(float(1.0 - over_p), 4),
+            }
+
+        # Team Total Goals: Home & Away Over / Under 0.5, 1.5, 2.5
+        team_totals: dict[str, dict[str, float]] = {}
+        for line in (0.5, 1.5, 2.5):
+            h_thresh = int(math.floor(line)) + 1
+            home_over = float(np.sum(matrix[h_thresh:, :]))
+            team_totals[f"home_over_under_{line}"] = {
+                "over": round(home_over, 4),
+                "under": round(1.0 - home_over, 4),
+            }
+
+            a_thresh = int(math.floor(line)) + 1
+            away_over = float(np.sum(matrix[:, a_thresh:]))
+            team_totals[f"away_over_under_{line}"] = {
+                "over": round(away_over, 4),
+                "under": round(1.0 - away_over, 4),
+            }
+
+        # Clean Sheet Probabilities
+        clean_sheet_home = float(np.sum(matrix[:, 0]))  # Away team scores 0
+        clean_sheet_away = float(np.sum(matrix[0, :]))  # Home team scores 0
+
+        # Asian Handicaps (-1.5, +1.5, etc.)
+        home_minus_1_5 = 0.0
+        away_minus_1_5 = 0.0
+        for h in range(matrix.shape[0]):
+            for a in range(matrix.shape[1]):
+                if (h - a) >= 2:
+                    home_minus_1_5 += matrix[h, a]
+                if (a - h) >= 2:
+                    away_minus_1_5 += matrix[h, a]
+
+        handicaps = {
+            "asian_handicap_home_-1.5": round(float(home_minus_1_5), 4),
+            "asian_handicap_away_+1.5": round(float(1.0 - home_minus_1_5), 4),
+            "asian_handicap_home_+1.5": round(float(1.0 - away_minus_1_5), 4),
+            "asian_handicap_away_-1.5": round(float(away_minus_1_5), 4),
+            "asian_handicap_home_-0.5": round(prob_home, 4),
+            "asian_handicap_away_+0.5": round(prob_x2, 4),
+            "asian_handicap_home_+0.5": round(prob_1x, 4),
+            "asian_handicap_away_-0.5": round(prob_away, 4),
+        }
+
+        # Special Markets: Match Corners (Negative Binomial distribution)
+        exp_corners = max(6.0, (5.2 * (1.0 + alpha_h * 0.15)) + (4.4 * (1.0 + alpha_a * 0.15)))
+        corner_disp = 0.14
+        p_c = 1.0 / (1.0 + corner_disp * exp_corners)
+        n_c = 1.0 / corner_disp
+        corners_market: dict[str, dict[str, float]] = {}
+        for c_line in (7.5, 8.5, 9.5, 10.5):
+            k = int(math.floor(c_line))
+            u_prob = float(nbinom.cdf(k, n_c, p_c))
+            corners_market[f"corners_over_under_{c_line}"] = {
+                "over": round(1.0 - u_prob, 4),
+                "under": round(u_prob, 4),
+            }
+
+        # Special Markets: Match Cards / Bookings (Negative Binomial distribution)
+        exp_cards = 4.10
+        card_disp = 0.20
+        p_b = 1.0 / (1.0 + card_disp * exp_cards)
+        n_b = 1.0 / card_disp
+        cards_market: dict[str, dict[str, float]] = {}
+        for b_line in (2.5, 3.5, 4.5):
+            k = int(math.floor(b_line))
+            u_prob = float(nbinom.cdf(k, n_b, p_b))
+            cards_market[f"cards_over_under_{b_line}"] = {
+                "over": round(1.0 - u_prob, 4),
+                "under": round(u_prob, 4),
             }
 
         # Top 5 most likely correct scores
@@ -310,10 +379,22 @@ class DixonColesModel:
                 "away": round(prob_dnb_away, 4),
             },
             "btts": {
+                "gg": round(btts_yes, 4),
+                "ng": round(btts_no, 4),
                 "yes": round(btts_yes, 4),
                 "no": round(btts_no, 4),
             },
             "totals": totals,
+            "team_totals": team_totals,
+            "clean_sheets": {
+                "home_clean_sheet_yes": round(clean_sheet_home, 4),
+                "home_clean_sheet_no": round(1.0 - clean_sheet_home, 4),
+                "away_clean_sheet_yes": round(clean_sheet_away, 4),
+                "away_clean_sheet_no": round(1.0 - clean_sheet_away, 4),
+            },
+            "handicaps": handicaps,
+            "corners": corners_market,
+            "cards": cards_market,
             "top_correct_scores": top_scores,
             "matrix_shape": list(matrix.shape),
         }
