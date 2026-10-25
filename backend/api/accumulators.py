@@ -125,11 +125,12 @@ async def generate_accumulators(
         )
     )
 
+    now = datetime.now()
     sched_check = await db.scalar(
-        select(Match.id).where(Match.status == "scheduled").limit(1)
+        select(Match.id).where(Match.status == "scheduled", Match.kickoff >= now).limit(1)
     )
     if sched_check:
-        target_stmt = target_stmt.where(Match.status == "scheduled").order_by(asc(Match.kickoff))
+        target_stmt = target_stmt.where(Match.status == "scheduled", Match.kickoff >= now).order_by(asc(Match.kickoff))
     else:
         target_stmt = target_stmt.order_by(desc(Match.kickoff))
 

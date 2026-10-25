@@ -52,8 +52,9 @@ export default function MatchList({ fixtures }: { fixtures: FixtureItem[] }) {
   const [selectedLeague, setSelectedLeague] = useState<string>("all");
 
   const filtered = fixtures.filter((f) => {
-    const isSched = f.status === "scheduled";
-    const matchTab = activeTab === "upcoming" ? isSched : !isSched;
+    // Only games with kickoff in the future belong in the upcoming betting feed
+    const isUpcoming = f.status === "scheduled" && new Date(f.kickoff).getTime() > Date.now();
+    const matchTab = activeTab === "upcoming" ? isUpcoming : !isUpcoming;
     const matchLeague = selectedLeague === "all" || f.league === selectedLeague;
     return matchTab && matchLeague;
   });

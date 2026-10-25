@@ -131,19 +131,22 @@ async def list_match_predictions(
     )
 
     matches_to_analyze: list[Match] = []
+    now = datetime.now()
 
     if status_filter:
-        order = asc(Match.kickoff) if status_filter == "scheduled" else desc(Match.kickoff)
-        stmt = base_query.where(Match.status == status_filter).order_by(order).limit(limit)
+        if status_filter == "scheduled":
+            stmt = base_query.where(Match.status == "scheduled", Match.kickoff >= now).order_by(asc(Match.kickoff)).limit(limit)
+        else:
+            stmt = base_query.where((Match.status == "finished") | (Match.kickoff < now)).order_by(desc(Match.kickoff)).limit(limit)
         res = await db.execute(stmt)
         matches_to_analyze = list(res.scalars().all())
     else:
-        # Fetch scheduled fixtures first, then completed matches
-        sched_stmt = base_query.where(Match.status == "scheduled").order_by(asc(Match.kickoff)).limit(limit - 15)
+        # Fetch upcoming future fixtures first (kickoff >= now), then recent completed matches
+        sched_stmt = base_query.where(Match.status == "scheduled", Match.kickoff >= now).order_by(asc(Match.kickoff)).limit(limit - 20)
         sched_res = await db.execute(sched_stmt)
         scheduled_matches = list(sched_res.scalars().all())
 
-        fin_stmt = base_query.where(Match.status == "finished").order_by(desc(Match.kickoff)).limit(15)
+        fin_stmt = base_query.where((Match.status == "finished") | (Match.kickoff < now)).order_by(desc(Match.kickoff)).limit(20)
         fin_res = await db.execute(fin_stmt)
         finished_matches = list(fin_res.scalars().all())
 
@@ -345,16 +348,21 @@ async def list_predictions(
         )
     )
 
+    now = datetime.now()
+
     if match_id:
         target_stmt = target_stmt.where(Match.id == match_id)
     elif status_filter:
-        target_stmt = target_stmt.where(Match.status == status_filter)
+        if status_filter == "scheduled":
+            target_stmt = target_stmt.where(Match.status == "scheduled", Match.kickoff >= now).order_by(asc(Match.kickoff))
+        else:
+            target_stmt = target_stmt.where((Match.status == "finished") | (Match.kickoff < now)).order_by(desc(Match.kickoff))
     else:
         sched_check = await db.scalar(
-            select(Match.id).where(Match.status == "scheduled").limit(1)
+            select(Match.id).where(Match.status == "scheduled", Match.kickoff >= now).limit(1)
         )
         if sched_check:
-            target_stmt = target_stmt.where(Match.status == "scheduled").order_by(asc(Match.kickoff))
+            target_stmt = target_stmt.where(Match.status == "scheduled", Match.kickoff >= now).order_by(asc(Match.kickoff))
         else:
             target_stmt = target_stmt.order_by(desc(Match.kickoff))
 
