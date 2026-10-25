@@ -2,6 +2,7 @@ import React from "react";
 import Link from "next/link";
 import { Activity, ArrowUpRight, CheckCircle2, ChevronRight, Layers, Shield, Sparkles, TrendingUp, Trophy } from "lucide-react";
 import MatchList from "../components/MatchList";
+import LiveMatchesSection from "../components/LiveMatchesSection";
 
 async function getSummaryData() {
   try {
@@ -10,6 +11,16 @@ async function getSummaryData() {
     return await res.json();
   } catch (e) {
     return null;
+  }
+}
+
+async function getLiveMatches() {
+  try {
+    const res = await fetch("http://127.0.0.1:8000/api/v1/in-play", { cache: "no-store" });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (e) {
+    return [];
   }
 }
 
@@ -35,11 +46,12 @@ async function getPredictions() {
 
 export default async function DashboardPage() {
   const summary = await getSummaryData();
+  const liveMatches = await getLiveMatches();
   const matches = await getMatchPredictions();
   const predictions = await getPredictions();
 
   const totalMatches = summary?.dataset_statistics?.total_matches || 1242;
-  const totalLeagues = summary?.dataset_statistics?.active_leagues || 11;
+  const totalLeagues = summary?.dataset_statistics?.active_leagues || 13;
   const totalOdds = summary?.dataset_statistics?.total_odds_records || 3600;
 
   return (
@@ -55,7 +67,7 @@ export default async function DashboardPage() {
             AI Football Probability Engine
           </h1>
           <p className="text-gray-400 text-sm mt-1 max-w-2xl leading-relaxed">
-            Real-time bivariate Poisson scoring distributions, expected goals (xG) calibration, AI surest predictions, and SportyBet booking code slip builder.
+            Real-time bivariate Poisson scoring distributions, live in-play predictions ("what to carry"), AI surest predictions, and SportyBet booking code slip builder.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -84,7 +96,7 @@ export default async function DashboardPage() {
           </div>
           <p className="text-2xl font-bold text-white">{totalMatches.toLocaleString()}</p>
           <p className="text-xs text-emerald-400/80 mt-1 flex items-center gap-1">
-            <CheckCircle2 className="h-3 w-3" /> Premier League, La Liga, Serie A
+            <CheckCircle2 className="h-3 w-3" /> 13 Competitions (UCL, EPL, La Liga)
           </p>
         </div>
 
@@ -116,6 +128,11 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      {/* 🔴 LIVE IN-PLAY MATCHES SECTION */}
+      {liveMatches && liveMatches.length > 0 && (
+        <LiveMatchesSection matches={liveMatches} />
+      )}
+
       {/* TODAY & UPCOMING MATCHES WITH SUREST PREDICTION & ANALYSIS */}
       <section className="space-y-4">
         <div>
@@ -126,7 +143,7 @@ export default async function DashboardPage() {
             </span>
           </h2>
           <p className="text-xs sm:text-sm text-gray-400 mt-1">
-            Browse upcoming matches, view expected goals (xG), inspect AI tactical rationales, and click "+ Slip" to gather your picks into a SportyBet booking code.
+            Browse upcoming matches across 13 leagues, inspect top high-conviction surest picks, view expected goals (xG), and click "+ Slip" to gather your picks into a SportyBet booking code.
           </p>
         </div>
 

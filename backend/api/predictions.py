@@ -142,7 +142,11 @@ async def list_match_predictions(
         res = await db.execute(stmt)
         matches_to_analyze = list(res.scalars().all())
     else:
-        # Fetch upcoming future fixtures first (kickoff >= now), then recent completed matches
+        # Fetch live in-play games, upcoming future fixtures (kickoff >= now), and recent completed matches
+        live_stmt = base_query.where(Match.status == "in_play").order_by(asc(Match.kickoff))
+        live_res = await db.execute(live_stmt)
+        live_matches = list(live_res.scalars().all())
+
         sched_stmt = base_query.where(Match.status == "scheduled", Match.kickoff >= now).order_by(asc(Match.kickoff)).limit(limit - 20)
         sched_res = await db.execute(sched_stmt)
         scheduled_matches = list(sched_res.scalars().all())
@@ -151,7 +155,7 @@ async def list_match_predictions(
         fin_res = await db.execute(fin_stmt)
         finished_matches = list(fin_res.scalars().all())
 
-        matches_to_analyze = scheduled_matches + finished_matches
+        matches_to_analyze = live_matches + scheduled_matches + finished_matches
 
     match_items: list[dict[str, Any]] = []
 

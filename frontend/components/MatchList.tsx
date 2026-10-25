@@ -48,13 +48,20 @@ export interface FixtureItem {
 export default function MatchList({ fixtures }: { fixtures: FixtureItem[] }) {
   const { addLeg, legs, setIsOpen } = useSlip();
   const [selectedMatch, setSelectedMatch] = useState<MatchAnalysisData | null>(null);
-  const [activeTab, setActiveTab] = useState<"upcoming" | "finished">("upcoming");
+  const [activeTab, setActiveTab] = useState<"upcoming" | "finished" | "live">("upcoming");
   const [selectedLeague, setSelectedLeague] = useState<string>("all");
 
+  const liveMatches = fixtures.filter((f) => f.status === "in_play");
+
   const filtered = fixtures.filter((f) => {
-    // Only games with kickoff in the future belong in the upcoming betting feed
-    const isUpcoming = f.status === "scheduled" && new Date(f.kickoff).getTime() > Date.now();
-    const matchTab = activeTab === "upcoming" ? isUpcoming : !isUpcoming;
+    let matchTab = false;
+    if (activeTab === "live") {
+      matchTab = f.status === "in_play";
+    } else if (activeTab === "upcoming") {
+      matchTab = f.status === "scheduled" && new Date(f.kickoff).getTime() > Date.now();
+    } else {
+      matchTab = f.status === "finished" || (f.status !== "in_play" && new Date(f.kickoff).getTime() <= Date.now());
+    }
     const matchLeague = selectedLeague === "all" || f.league === selectedLeague;
     return matchTab && matchLeague;
   });
@@ -81,6 +88,22 @@ export default function MatchList({ fixtures }: { fixtures: FixtureItem[] }) {
       {/* Tab Filter Navigation */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-gray-800 pb-4">
         <div className="flex items-center gap-2">
+          {liveMatches.length > 0 && (
+            <button
+              onClick={() => setActiveTab("live")}
+              className={`px-4 py-2 rounded-xl font-bold text-sm transition flex items-center gap-2 ${
+                activeTab === "live"
+                  ? "bg-red-500 text-white shadow-md shadow-red-500/30 font-black"
+                  : "bg-red-950/40 text-red-300 hover:text-white hover:bg-red-900/40 border border-red-800/60"
+              }`}
+            >
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+              </span>
+              <span>Live In-Play ({liveMatches.length})</span>
+            </button>
+          )}
           <button
             onClick={() => setActiveTab("upcoming")}
             className={`px-4 py-2 rounded-xl font-bold text-sm transition flex items-center gap-2 ${
@@ -90,7 +113,7 @@ export default function MatchList({ fixtures }: { fixtures: FixtureItem[] }) {
             }`}
           >
             <Clock className="h-4 w-4" />
-            <span>Today & Upcoming Games</span>
+            <span>Upcoming Games</span>
           </button>
           <button
             onClick={() => setActiveTab("finished")}
@@ -164,14 +187,27 @@ export default function MatchList({ fixtures }: { fixtures: FixtureItem[] }) {
                     <span className="font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-900/60 px-2.5 py-0.5 rounded-full">
                       {match.league}
                     </span>
-                    <span className="text-gray-400 font-mono text-[11px]">{dateStr}</span>
+                    {match.status === "in_play" ? (
+                      <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-950 text-red-400 border border-red-800 font-mono font-bold text-[11px]">
+                        <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span>
+                        <span>LIVE IN-PLAY</span>
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 font-mono text-[11px]">{dateStr}</span>
+                    )}
                   </div>
 
                   <h3 className="font-extrabold text-white text-base sm:text-lg">
                     {match.home_team} <span className="text-gray-500 font-normal">vs</span> {match.away_team}
                   </h3>
 
-                  {match.status === "finished" ? (
+                  {match.status === "in_play" ? (
+                    <div className="inline-flex items-center gap-2 mt-1 px-3 py-1 rounded-lg bg-red-950/40 border border-red-800/80">
+                      <span className="text-xs font-black text-white font-mono">
+                        Live Score: {match.ft_home_goals ?? 0} - {match.ft_away_goals ?? 0}
+                      </span>
+                    </div>
+                  ) : match.status === "finished" ? (
                     <span className="inline-block mt-1 font-mono text-xs px-2.5 py-0.5 rounded bg-gray-900 text-emerald-400 border border-gray-800">
                       Final Score: {match.ft_home_goals} - {match.ft_away_goals}
                     </span>

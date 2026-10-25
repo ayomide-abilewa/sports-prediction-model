@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import structlog
 
-from backend.api import accumulators, fixtures, matches, performance, predictions
+from backend.api import accumulators, fixtures, in_play, matches, performance, predictions
 from backend.config import settings
 from backend.db.init_db import seed_initial_data
 
@@ -47,6 +47,7 @@ app.include_router(matches.router, prefix="/api/v1")
 app.include_router(predictions.router, prefix="/api/v1")
 app.include_router(accumulators.router, prefix="/api/v1")
 app.include_router(performance.router, prefix="/api/v1")
+app.include_router(in_play.router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health", tags=["Health"])
