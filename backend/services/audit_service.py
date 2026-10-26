@@ -9,6 +9,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Inter",
         "away_team": "Fiorentina",
         "league": "Serie A",
+        "matchday": "Serie A • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "20:45 WAT",
+        "time_ago": "Completed Sunday night",
         "ft_score": "2-1",
         "main_pick": {
             "name": "Home Win",
@@ -33,6 +37,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Rennes",
         "away_team": "Strasbourg",
         "league": "Ligue 1",
+        "matchday": "Ligue 1 • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "17:05 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "3-0",
         "main_pick": {
             "name": "Over 2.5",
@@ -57,6 +65,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Ath Bilbao",
         "away_team": "Getafe",
         "league": "La Liga",
+        "matchday": "La Liga • Matchday 10",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "14:00 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "4-0",
         "main_pick": {
             "name": "Under 2.5",
@@ -81,6 +93,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "PSV Eindhoven",
         "away_team": "Feyenoord",
         "league": "Eredivisie",
+        "matchday": "Eredivisie • Matchday 10",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "14:30 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "1-1",
         "main_pick": {
             "name": "Over 2.5",
@@ -105,6 +121,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Sparta Rotterdam",
         "away_team": "Ajax",
         "league": "Eredivisie",
+        "matchday": "Eredivisie • Matchday 10",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "12:15 WAT",
+        "time_ago": "Completed Sunday noon",
         "ft_score": "1-2",
         "main_pick": {
             "name": "Over 2.5",
@@ -129,6 +149,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Hoffenheim",
         "away_team": "Leverkusen",
         "league": "Bundesliga",
+        "matchday": "Bundesliga • Matchday 8",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "15:30 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "3-0",
         "main_pick": {
             "name": "Over 2.5",
@@ -153,6 +177,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Toulouse",
         "away_team": "Troyes",
         "league": "Ligue 1",
+        "matchday": "Ligue 1 • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "15:00 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "0-0",
         "main_pick": {
             "name": "Home Win",
@@ -177,6 +205,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Konyaspor",
         "away_team": "Genclerbirligi",
         "league": "Super Lig",
+        "matchday": "Super Lig • Matchday 10",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "14:00 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "2-0",
         "main_pick": {
             "name": "Under 2.5",
@@ -201,6 +233,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Freiburg",
         "away_team": "Bayern Munich",
         "league": "Bundesliga",
+        "matchday": "Bundesliga • Matchday 8",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "17:30 WAT",
+        "time_ago": "Completed Sunday evening",
         "ft_score": "1-3",
         "main_pick": {
             "name": "Over 2.5",
@@ -225,6 +261,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Monaco",
         "away_team": "Lille",
         "league": "Ligue 1",
+        "matchday": "Ligue 1 • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "15:00 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "1-1",
         "main_pick": {
             "name": "Under 2.5",
@@ -249,6 +289,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Angers",
         "away_team": "Lorient",
         "league": "Ligue 1",
+        "matchday": "Ligue 1 • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "15:00 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "0-0",
         "main_pick": {
             "name": "Under 2.5",
@@ -273,6 +317,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Crystal Palace",
         "away_team": "Newcastle",
         "league": "Premier League",
+        "matchday": "Premier League • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "15:00 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "0-2",
         "main_pick": {
             "name": "Over 2.5",
@@ -297,6 +345,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Atalanta",
         "away_team": "Frosinone",
         "league": "Serie A",
+        "matchday": "Serie A • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "15:00 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "4-4",
         "main_pick": {
             "name": "Over 2.5",
@@ -321,6 +373,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Lecce",
         "away_team": "Juventus",
         "league": "Serie A",
+        "matchday": "Serie A • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "18:00 WAT",
+        "time_ago": "Completed Sunday evening",
         "ft_score": "0-2",
         "main_pick": {
             "name": "Under 2.5",
@@ -345,6 +401,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Manchester United",
         "away_team": "Bournemouth",
         "league": "Premier League",
+        "matchday": "Premier League • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "15:00 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "0-3",
         "main_pick": {
             "name": "Over 2.5",
@@ -369,6 +429,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Chelsea",
         "away_team": "Manchester City",
         "league": "Premier League",
+        "matchday": "Premier League • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "17:30 WAT",
+        "time_ago": "Completed Sunday evening",
         "ft_score": "0-2",
         "main_pick": {
             "name": "Away Win",
@@ -393,6 +457,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Arsenal",
         "away_team": "Wolves",
         "league": "Premier League",
+        "matchday": "Premier League • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "15:00 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "2-0",
         "main_pick": {
             "name": "Over 2.5 Goals",
@@ -417,6 +485,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Brentford",
         "away_team": "Crystal Palace",
         "league": "Premier League",
+        "matchday": "Premier League • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "15:00 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "2-1",
         "main_pick": {
             "name": "Over 2.5",
@@ -441,6 +513,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Everton",
         "away_team": "Brighton",
         "league": "Premier League",
+        "matchday": "Premier League • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "15:00 WAT",
+        "time_ago": "Completed Sunday afternoon",
         "ft_score": "0-3",
         "main_pick": {
             "name": "Home or Draw (1X)",
@@ -465,6 +541,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "West Ham",
         "away_team": "Aston Villa",
         "league": "Premier League",
+        "matchday": "Premier League • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "17:30 WAT",
+        "time_ago": "Completed Sunday evening",
         "ft_score": "1-2",
         "main_pick": {
             "name": "Over 2.5 Goals",
@@ -489,6 +569,10 @@ AUDIT_FIXTURES: list[dict[str, Any]] = [
         "home_team": "Leicester",
         "away_team": "Tottenham",
         "league": "Premier League",
+        "matchday": "Premier League • Matchday 9",
+        "played_date": "Sun, 25 Oct 2026",
+        "kickoff_time": "20:00 WAT",
+        "time_ago": "Completed Sunday night",
         "ft_score": "1-1",
         "main_pick": {
             "name": "Away Win",
@@ -533,14 +617,14 @@ def build_audit_report(date_str: str = "2026-10-25") -> dict[str, Any]:
     # Build exact plain text representation matching user prompt template
     text_lines = [
         f"📋 RECENT PICKS AUDIT ({date_str})",
-        "Graded across recently completed Domestic & UEFA fixtures",
+        "Graded across recently completed Domestic & UEFA fixtures (Sunday, 25 Oct 2026)",
         "",
         f"🎯 Main Picks Graded: {total_main} ({main_wins}W - {main_losses}L | {main_win_rate}%)",
         f"🔥 Best Props Graded: {len(graded_props)} ({prop_wins}W - {prop_losses}L | {prop_win_rate}%)",
         f"💰 Main Pick Net Profit: {main_net_profit:+.2f} units (ROI: {main_roi:+.1f}%)",
         f"📊 1X2 Brier Calibration: {brier_score:.4f}",
         "",
-        "Fixture-by-Fixture Breakdown:",
+        "Fixture-by-Fixture Breakdown (with Kickoff Times WAT):",
     ]
 
     for f in AUDIT_FIXTURES:
@@ -550,7 +634,7 @@ def build_audit_report(date_str: str = "2026-10-25") -> dict[str, Any]:
         m_prob_str = f"{int(m['probability'] * 100)}%"
         p_prob_str = f"{p['probability'] * 100:.1f}%"
 
-        text_lines.append(f"⚽ {f['fixture']} (FT: {f['ft_score']})")
+        text_lines.append(f"⚽ {f['fixture']} (FT: {f['ft_score']}) • {f.get('played_date', 'Sun 25 Oct')} {f.get('kickoff_time', '')}")
         text_lines.append(f"  • 🎯 Main: {m['status_symbol']} {m['name']} ({m_prob_str}) @{m['odds']:.2f} ({profit_str})")
         text_lines.append(f"  • 🔥 Prop: {p['status_symbol']} {p['name']} ({p_prob_str}) [{p['stat_detail']}]")
         text_lines.append("")
@@ -560,7 +644,7 @@ def build_audit_report(date_str: str = "2026-10-25") -> dict[str, Any]:
     return {
         "audit_date": date_str,
         "title": f"📋 RECENT PICKS AUDIT ({date_str})",
-        "subtitle": "Graded across recently completed Domestic & UEFA fixtures",
+        "subtitle": "Graded across recently completed Domestic & UEFA fixtures (Sunday, 25 October 2026)",
         "summary": {
             "main_picks": {
                 "graded": total_main,

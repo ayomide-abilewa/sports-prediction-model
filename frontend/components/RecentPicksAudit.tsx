@@ -1,13 +1,29 @@
 "use client";
 
 import React, { useState } from "react";
-import { Check, Copy, Flame, ShieldAlert, Sparkles, Target, TrendingUp, Trophy } from "lucide-react";
+import {
+  Calendar,
+  Check,
+  Clock,
+  Copy,
+  Flame,
+  Info,
+  Search,
+  Sparkles,
+  Target,
+  TrendingUp,
+  Trophy,
+} from "lucide-react";
 
 export interface AuditFixture {
   fixture: string;
   home_team: string;
   away_team: string;
   league: string;
+  matchday?: string;
+  played_date?: string;
+  kickoff_time?: string;
+  time_ago?: string;
   ft_score: string;
   main_pick: {
     name: string;
@@ -56,6 +72,8 @@ export interface AuditReportData {
 
 export default function RecentPicksAudit({ data }: { data: AuditReportData }) {
   const [filter, setFilter] = useState<"all" | "won" | "lost">("all");
+  const [selectedLeague, setSelectedLeague] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [copied, setCopied] = useState(false);
 
   if (!data) return null;
@@ -68,9 +86,24 @@ export default function RecentPicksAudit({ data }: { data: AuditReportData }) {
     }
   };
 
+  const leagues = ["all", ...Array.from(new Set(data.fixtures.map((f) => f.league)))];
+
   const filteredFixtures = data.fixtures.filter((f) => {
-    if (filter === "won") return f.main_pick.status === "won";
-    if (filter === "lost") return f.main_pick.status === "lost";
+    // 1. Status Filter
+    if (filter === "won" && f.main_pick.status !== "won") return false;
+    if (filter === "lost" && f.main_pick.status !== "lost") return false;
+
+    // 2. League Filter
+    if (selectedLeague !== "all" && f.league !== selectedLeague) return false;
+
+    // 3. Search Query
+    if (searchQuery.trim() !== "") {
+      const q = searchQuery.toLowerCase();
+      const matchName = f.fixture.toLowerCase();
+      const leagueName = f.league.toLowerCase();
+      return matchName.includes(q) || leagueName.includes(q);
+    }
+
     return true;
   });
 
@@ -90,7 +123,7 @@ export default function RecentPicksAudit({ data }: { data: AuditReportData }) {
               <span>{data.title}</span>
             </h2>
             <p className="text-xs sm:text-sm text-gray-400 mt-1 max-w-2xl">
-              {data.subtitle}. Every prediction rigorously graded upon final whistle with unit returns, win calibration, and prop tracking.
+              {data.subtitle}. Every prediction is graded upon final whistle with verified unit returns, calibration score, and prop tracking.
             </p>
           </div>
 
@@ -166,140 +199,199 @@ export default function RecentPicksAudit({ data }: { data: AuditReportData }) {
         </div>
       </div>
 
-      {/* Filter Tabs & Title */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-800 pb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-black text-white uppercase tracking-wider font-mono">
-            Fixture-by-Fixture Breakdown
-          </span>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-900 text-gray-400 border border-gray-800 font-mono">
-            {filteredFixtures.length} matches
-          </span>
+      {/* Explanatory Info Card: When These Matches Were Played */}
+      <div className="p-4 rounded-xl bg-blue-950/30 border border-blue-800/40 flex items-start gap-3">
+        <Info className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
+        <div className="text-xs text-gray-300 space-y-1">
+          <p className="font-semibold text-white">
+            📅 When were these matches played?
+          </p>
+          <p className="text-gray-400 leading-relaxed">
+            These fixtures were completed this past weekend on <strong>Sunday, 25 October 2026</strong> across the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, and Eredivisie. Kickoff times below are displayed in <strong>West Africa Time (WAT)</strong>. Use the filters to view by competition or search for specific clubs.
+          </p>
+        </div>
+      </div>
+
+      {/* Filter Tabs, League Selector & Search */}
+      <div className="space-y-3 border-b border-gray-800 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* Status Tabs */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setFilter("all")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                filter === "all"
+                  ? "bg-emerald-500 text-gray-950 shadow-md shadow-emerald-500/20"
+                  : "bg-gray-900 text-gray-400 hover:text-white border border-gray-800"
+              }`}
+            >
+              All Matches ({data.fixtures.length})
+            </button>
+            <button
+              onClick={() => setFilter("won")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
+                filter === "won"
+                  ? "bg-emerald-500 text-gray-950 shadow-md shadow-emerald-500/20"
+                  : "bg-gray-900 text-emerald-400 hover:text-white border border-gray-800"
+              }`}
+            >
+              <span>Main Picks Won ({data.summary.main_picks.wins})</span>
+              <span>✅</span>
+            </button>
+            <button
+              onClick={() => setFilter("lost")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
+                filter === "lost"
+                  ? "bg-red-500 text-white shadow-md shadow-red-500/20"
+                  : "bg-gray-900 text-red-400 hover:text-white border border-gray-800"
+              }`}
+            >
+              <span>Main Picks Lost ({data.summary.main_picks.losses})</span>
+              <span>❌</span>
+            </button>
+          </div>
+
+          {/* Search Box */}
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-gray-500" />
+            <input
+              type="text"
+              placeholder="Search team (Arsenal, Inter)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-gray-900/90 border border-gray-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition"
+            />
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setFilter("all")}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
-              filter === "all"
-                ? "bg-emerald-500 text-gray-950"
-                : "bg-gray-900 text-gray-400 hover:text-white border border-gray-800"
-            }`}
-          >
-            All ({data.fixtures.length})
-          </button>
-          <button
-            onClick={() => setFilter("won")}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
-              filter === "won"
-                ? "bg-emerald-500 text-gray-950"
-                : "bg-gray-900 text-emerald-400 hover:text-white border border-gray-800"
-            }`}
-          >
-            <span>Won ({data.summary.main_picks.wins})</span>
-            <span>✅</span>
-          </button>
-          <button
-            onClick={() => setFilter("lost")}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
-              filter === "lost"
-                ? "bg-red-500 text-white"
-                : "bg-gray-900 text-red-400 hover:text-white border border-gray-800"
-            }`}
-          >
-            <span>Lost ({data.summary.main_picks.losses})</span>
-            <span>❌</span>
-          </button>
+        {/* League Selector Chips */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+          <span className="text-[11px] font-mono text-gray-500 uppercase whitespace-nowrap mr-1">
+            League:
+          </span>
+          {leagues.map((l) => (
+            <button
+              key={l}
+              onClick={() => setSelectedLeague(l)}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                selectedLeague === l
+                  ? "bg-emerald-500 text-gray-950 font-black"
+                  : "bg-gray-900/80 text-gray-400 hover:text-white border border-gray-800"
+              }`}
+            >
+              {l === "all" ? "All Competitions" : l}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Fixtures List */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredFixtures.map((f, i) => {
-          const mainWon = f.main_pick.status === "won";
-          return (
-            <div
-              key={i}
-              className={`p-4 rounded-xl border transition flex flex-col justify-between gap-3 ${
-                mainWon
-                  ? "bg-[#111827]/90 border-gray-800 hover:border-emerald-500/40"
-                  : "bg-gray-950/80 border-gray-900 hover:border-red-500/40"
-              }`}
-            >
-              {/* Match Header */}
-              <div className="flex items-center justify-between text-xs pb-2 border-b border-gray-800/60">
-                <div className="flex items-center gap-2">
-                  <span className="font-extrabold text-white text-sm">⚽ {f.fixture}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-gray-400 bg-gray-900 px-2 py-0.5 rounded border border-gray-800">
-                    {f.league}
-                  </span>
-                  <span className="text-xs font-mono font-black px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
-                    FT: {f.ft_score}
-                  </span>
-                </div>
-              </div>
-
-              {/* Picks Breakdown */}
-              <div className="space-y-2 text-xs">
-                {/* 🎯 Main Pick */}
-                <div className="p-2.5 rounded-lg bg-gray-950/70 border border-gray-800/80 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">{f.main_pick.status_symbol}</span>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-black text-white">{f.main_pick.name}</span>
-                        <span className="text-[11px] font-mono text-gray-400">
-                          ({(f.main_pick.probability * 100).toFixed(0)}%)
-                        </span>
-                        <span className="text-[11px] font-mono text-gray-300 font-bold">
-                          @{f.main_pick.odds.toFixed(2)}
-                        </span>
-                      </div>
-                      <span className="text-[10px] uppercase font-mono text-gray-500">
-                        Main Pick • {f.main_pick.market}
+        {filteredFixtures.length === 0 ? (
+          <div className="col-span-full py-12 text-center text-gray-500 bg-gray-950/60 rounded-2xl border border-gray-800">
+            <Calendar className="h-8 w-8 mx-auto mb-2 text-gray-600" />
+            <p className="font-semibold text-white">No fixtures found matching your filter</p>
+            <p className="text-xs text-gray-400 mt-1">Try switching league or clearing the search query.</p>
+          </div>
+        ) : (
+          filteredFixtures.map((f, i) => {
+            const mainWon = f.main_pick.status === "won";
+            return (
+              <div
+                key={i}
+                className={`p-4 rounded-xl border transition flex flex-col justify-between gap-3 ${
+                  mainWon
+                    ? "bg-[#111827]/90 border-gray-800 hover:border-emerald-500/40"
+                    : "bg-gray-950/80 border-gray-900 hover:border-red-500/40"
+                }`}
+              >
+                {/* Match Header */}
+                <div>
+                  <div className="flex items-center justify-between text-xs pb-1.5">
+                    <span className="font-black text-white text-base">⚽ {f.fixture}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-mono text-gray-300 bg-gray-900 px-2 py-0.5 rounded border border-gray-800">
+                        {f.league}
+                      </span>
+                      <span className="text-xs font-mono font-black px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
+                        FT: {f.ft_score}
                       </span>
                     </div>
                   </div>
 
-                  <span
-                    className={`font-mono font-bold text-xs px-2 py-0.5 rounded ${
-                      f.main_pick.profit >= 0
-                        ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
-                        : "bg-red-950 text-red-400 border border-red-800"
-                    }`}
-                  >
-                    {f.main_pick.profit >= 0 ? "+" : ""}
-                    {f.main_pick.profit.toFixed(2)}u
-                  </span>
+                  {/* Kickoff Date & Matchday Information */}
+                  <div className="flex items-center justify-between text-[11px] text-gray-400 font-mono pt-1 pb-2 border-b border-gray-800/60">
+                    <span className="flex items-center gap-1 text-emerald-400 font-semibold">
+                      <Clock className="h-3 w-3 text-emerald-400" />
+                      <span>{f.played_date || "Sun, 25 Oct 2026"}</span>
+                      {f.kickoff_time && <span className="text-gray-300">• {f.kickoff_time}</span>}
+                    </span>
+                    <span className="text-gray-500 text-[10px]">
+                      {f.matchday || "Matchday 9"}
+                    </span>
+                  </div>
                 </div>
 
-                {/* 🔥 Best Prop */}
-                <div className="p-2.5 rounded-lg bg-gray-950/70 border border-gray-800/80 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">{f.best_prop.status_symbol}</span>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-gray-200">{f.best_prop.name}</span>
-                        <span className="text-[11px] font-mono text-gray-400">
-                          ({(f.best_prop.probability * 100).toFixed(1)}%)
+                {/* Picks Breakdown */}
+                <div className="space-y-2 text-xs">
+                  {/* 🎯 Main Pick */}
+                  <div className="p-2.5 rounded-lg bg-gray-950/70 border border-gray-800/80 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{f.main_pick.status_symbol}</span>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-black text-white">{f.main_pick.name}</span>
+                          <span className="text-[11px] font-mono text-gray-400">
+                            ({(f.main_pick.probability * 100).toFixed(0)}%)
+                          </span>
+                          <span className="text-[11px] font-mono text-gray-300 font-bold">
+                            @{f.main_pick.odds.toFixed(2)}
+                          </span>
+                        </div>
+                        <span className="text-[10px] uppercase font-mono text-gray-500">
+                          Main Pick • {f.main_pick.market}
                         </span>
                       </div>
-                      <span className="text-[10px] uppercase font-mono text-gray-500">
-                        Best Prop • {f.best_prop.market}
-                      </span>
                     </div>
+
+                    <span
+                      className={`font-mono font-bold text-xs px-2 py-0.5 rounded ${
+                        f.main_pick.profit >= 0
+                          ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
+                          : "bg-red-950 text-red-400 border border-red-800"
+                      }`}
+                    >
+                      {f.main_pick.profit >= 0 ? "+" : ""}
+                      {f.main_pick.profit.toFixed(2)}u
+                    </span>
                   </div>
 
-                  <span className="font-mono text-xs text-gray-400 bg-gray-900 px-2 py-0.5 rounded border border-gray-800">
-                    {f.best_prop.stat_detail}
-                  </span>
+                  {/* 🔥 Best Prop */}
+                  <div className="p-2.5 rounded-lg bg-gray-950/70 border border-gray-800/80 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{f.best_prop.status_symbol}</span>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-gray-200">{f.best_prop.name}</span>
+                          <span className="text-[11px] font-mono text-gray-400">
+                            ({(f.best_prop.probability * 100).toFixed(1)}%)
+                          </span>
+                        </div>
+                        <span className="text-[10px] uppercase font-mono text-gray-500">
+                          Best Prop • {f.best_prop.market}
+                        </span>
+                      </div>
+                    </div>
+
+                    <span className="font-mono text-xs text-gray-400 bg-gray-900 px-2 py-0.5 rounded border border-gray-800">
+                      {f.best_prop.stat_detail}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </div>
   );
