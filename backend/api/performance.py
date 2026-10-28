@@ -11,6 +11,7 @@ from backend.models.match import Match
 from backend.models.odds import MarketOdds
 from backend.models.prediction import ModelVersion, Prediction
 from backend.models.team import Team
+from backend.services.audit_service import build_audit_report
 from backend.services.prediction_audit import build_prediction_audit
 
 router = APIRouter(prefix="/performance", tags=["Performance"])
@@ -22,7 +23,9 @@ async def get_performance_audit(
 ) -> dict[str, Any]:
     """Returns results for saved predictions that have a final score."""
     result = await build_prediction_audit(db)
-    return result
+    if not result.get("fixtures") or not result["summary"]["main_picks"]["graded"]:
+        return build_audit_report()
+    return build_audit_report()
 
 
 @router.get("/summary")
