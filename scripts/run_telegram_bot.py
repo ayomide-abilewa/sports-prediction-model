@@ -1,22 +1,59 @@
 from __future__ import annotations
 
-import argparse
-import asyncio
 import os
 import sys
 from pathlib import Path
 
+# 1. Windows UTF-8 console output setup
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+# 2. Auto-forward to virtual environment if invoked with global system Python
+project_root = Path(__file__).resolve().parent.parent
+venv_python = project_root / ".venv" / "Scripts" / "python.exe"
+if not venv_python.exists():
+    venv_python = project_root / ".venv" / "bin" / "python"
+
+if venv_python.exists() and Path(sys.executable).resolve() != venv_python.resolve():
+    import subprocess
+    sys.exit(subprocess.call([str(venv_python)] + sys.argv))
+
 # Add project root to sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(project_root))
+
+import argparse
+import asyncio
+import re
+
+# Optional rich formatting with graceful plain-text fallback
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    console = Console()
+except ImportError:
+    class DummyConsole:
+        def print(self, msg, *args, **kwargs):
+            if hasattr(msg, "renderable"):
+                msg = str(msg.renderable)
+            # Strip simple rich markup tags like [bold green]...[/bold green]
+            clean = re.sub(r"\[/?(?:bold|dim|green|yellow|red|cyan|magenta|blue|white)[^\]]*\]", "", str(msg))
+            print(clean)
+    class DummyPanel:
+        def __init__(self, renderable, title="", border_style=""):
+            self.renderable = f"=== {title} ===\n{renderable}" if title else str(renderable)
+        def __str__(self):
+            return self.renderable
+    console = DummyConsole()
+    Panel = DummyPanel
 
 import httpx
-from rich.console import Console
-from rich.panel import Panel
-
 from backend.config import settings
 from backend.telegram.bot import TelegramBotService
-
-console = Console()
 
 
 async def run_bot_polling(token: str):
@@ -24,24 +61,8 @@ async def run_bot_polling(token: str):
     bot = TelegramBotService(token=token)
     api_url = f"https://api.telegram.org/bot{token}"
 
-    console.print(Panel(
-        "[bold green]AI Football Probability Engine — Telegram Bot Active![/bold green]\n"
-        "Bot token loaded; checking Telegram authentication...\n\n"
-        "Go to your bot in Telegram and send:\n"
-        "  • [bold yellow]/start[/bold yellow] or [bold yellow]/help[/bold yellow]\n"
-        "  • [bold yellow]/predictions[/bold yellow]\n"
-        "  • [bold yellow]/bankers[/bold yellow]\n"
-        "  • [bold yellow]/2_odds[/bold yellow]\n"
-        "  • [bold yellow]/5_odds[/bold yellow]\n"
-        "  • [bold yellow]/15_odds[/bold yellow]\n"
-        "  • [bold yellow]/performance[/bold yellow]\n\n"
-        "[dim]Press Ctrl+C to stop the bot.[/dim]",
-        title="Telegram Bot Live Poller",
-        border_style="green",
-    ))
-
-    offset = 0
     timeout = 30
+    offset = 0
 
     async with httpx.AsyncClient(timeout=40.0) as client:
         # Verify bot identity
@@ -50,12 +71,27 @@ async def run_bot_polling(token: str):
             me_data = me_resp.json()
             if me_data.get("ok"):
                 username = me_data["result"].get("username", "UnknownBot")
-                console.print(f"[bold cyan]Logged in as @{username}[/bold cyan]")
+                first_name = me_data["result"].get("first_name", "Telegram Bot")
+                console.print(Panel(
+                    f"[bold green]AI Football Probability Engine — Telegram Bot Online![/bold green]\n\n"
+                    f"🤖 Logged in as: [bold cyan]@{username}[/bold cyan] ({first_name})\n"
+                    f"🔗 API Backend: [bold yellow]{settings.api_base_url}[/bold yellow]\n\n"
+                    f"Your bot is now actively listening for messages in Telegram!\n"
+                    f"Open Telegram, search for [bold cyan]@{username}[/bold cyan], and send:\n"
+                    f"  • [bold yellow]/start[/bold yellow] (opens the interactive menu)\n"
+                    f"  • [bold yellow]/today[/bold yellow] or tap [bold]Today's fixtures[/bold]\n"
+                    f"  • [bold yellow]/predictions[/bold yellow] (Surest Pick & Best Prop)\n"
+                    f"  • [bold yellow]/2_odds[/bold yellow] (Banker Slip with SportyBet Code)\n"
+                    f"  • [bold yellow]/audit[/bold yellow] (Recent Picks Post-Game Review)\n\n"
+                    f"[dim]Press Ctrl+C to stop the bot.[/dim]",
+                    title="Telegram Bot Live Poller",
+                    border_style="green",
+                ))
             else:
                 console.print(f"[bold red]Token authentication failed:[/bold red] {me_data}")
                 return
         except Exception as exc:
-            console.print(f"[bold red]Connection error:[/bold red] {exc}")
+            console.print(f"[bold red]Connection error to Telegram API:[/bold red] {exc}")
             return
 
         while True:
@@ -89,7 +125,7 @@ async def run_bot_polling(token: str):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                console.print(f"[yellow]Polling warning: {e}[/yellow]")
+                console.print(f"[yellow]Polling notice: {e}[/yellow]")
                 await asyncio.sleep(3)
 
 
@@ -121,9 +157,7 @@ def main():
         ))
         return
 
-    console.print(f"[bold cyan]Connected to backend API:[/bold cyan] {settings.api_base_url}")
-    if settings.webapp_url:
-        console.print(f"[bold cyan]Web App Mini App URL:[/bold cyan] {settings.webapp_url}")
+    console.print(f"[dim]Connecting bot to backend: {settings.api_base_url}...[/dim]")
 
     try:
         asyncio.run(run_bot_polling(token))
