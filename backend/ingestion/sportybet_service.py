@@ -36,6 +36,7 @@ SPORTY_HEADERS = {
     "Referer": "https://www.sportybet.com/ng/",
     "Origin": "https://www.sportybet.com",
     "Content-Type": "application/json",
+    "Current-Country": "NG",
 }
 
 # In-memory cache for event details and market maps
@@ -52,26 +53,75 @@ def _get_httpx_client() -> httpx.Client:
     return httpx.Client(timeout=8.0, headers=SPORTY_HEADERS)
 
 
+def _extract_upcoming_events(data: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+    response_data = data.get("data", [])
+    total = 0
+    if isinstance(response_data, dict):
+        total = int(response_data.get("totalNum") or 0)
+        payload = response_data.get("tournaments", response_data.get("events", []))
+    else:
+        payload = response_data
+    events: list[dict[str, Any]] = []
+    if isinstance(payload, list):
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            grouped = item.get("events", [])
+            if isinstance(grouped, list):
+                events.extend(event for event in grouped if isinstance(event, dict))
+            if item.get("eventId"):
+                events.append(item)
+    return events, total
+
+
 def fetch_sporty_upcoming_events() -> list[dict[str, Any]]:
     """Fetches upcoming football matches directly from SportyBet Nigeria."""
     now_ts = datetime.now().timestamp()
     if _SPORTY_CACHE["upcoming_events"] and (now_ts - _SPORTY_CACHE["upcoming_sync"]) < 120:
         return _SPORTY_CACHE["upcoming_events"]
 
-    url = "https://www.sportybet.com/api/ng/factsCenter/wapUpcomingEvents?sportId=sr:sport:1"
+    url = "https://www.sportybet.com/api/ng/factsCenter/pcUpcomingEvents"
     try:
         with _get_httpx_client() as client:
-            resp = client.get(url)
-            if resp.status_code == 200:
-                data = resp.json()
-                events = data.get("data", [])
-                if events:
-                    _SPORTY_CACHE["upcoming_events"] = events
-                    _SPORTY_CACHE["upcoming_sync"] = now_ts
-                    return events
+            params = {
+                "sportId": "sr:sport:1",
+                "marketId": "1,10,18,29,166,139,14,16",
+                "pageSize": 100,
+                "todayGames": "false",
+                "timeline": 720,
+                "_t": int(now_ts * 1000),
+            }
+            events: list[dict[str, Any]] = []
+            total = 0
+            for page in range(1, 6):
+                resp = client.get(url, params={**params, "pageNum": page})
+                if resp.status_code != 200:
+                    break
+                page_events, total = _extract_upcoming_events(resp.json())
+                if not page_events:
+                    break
+                events.extend(page_events)
+                if total and page * params["pageSize"] >= total:
+                    break
+                if not total and len(page_events) < params["pageSize"]:
+                    break
+            now_ms = int(now_ts * 1000)
+            events = [
+                event for event in events
+                if event.get("eventId") and int(event.get("estimateStartTime") or 0) > now_ms
+            ]
+            deduped = {str(event["eventId"]): event for event in events}
+            events = sorted(deduped.values(), key=lambda event: int(event.get("estimateStartTime") or 0))
+            _SPORTY_CACHE["upcoming_events"] = events
+            _SPORTY_CACHE["upcoming_sync"] = now_ts
+            return events
     except Exception as exc:
         logger.warning(f"Error fetching SportyBet upcoming events: {exc}")
-    return _SPORTY_CACHE.get("upcoming_events", [])
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    return [
+        event for event in _SPORTY_CACHE.get("upcoming_events", [])
+        if int(event.get("estimateStartTime") or 0) > now_ms
+    ]
 
 
 def fetch_sporty_live_events() -> list[dict[str, Any]]:
@@ -92,13 +142,16 @@ def fetch_sporty_live_events() -> list[dict[str, Any]]:
                     for ev in g.get("events", []):
                         if ev.get("matchStatus") in ["H1", "H2", "HT", "Live", "live"]:
                             live_list.append(ev)
-                if live_list:
-                    _SPORTY_CACHE["live_events"] = live_list
-                    _SPORTY_CACHE["live_sync"] = now_ts
-                    return live_list
+                # A successful empty response means there are no live games.
+                # Cache that empty result too, or yesterday's live games linger.
+                _SPORTY_CACHE["live_events"] = live_list
+                _SPORTY_CACHE["live_sync"] = now_ts
+                return live_list
     except Exception as exc:
         logger.warning(f"Error fetching SportyBet live events: {exc}")
-    return _SPORTY_CACHE.get("live_events", [])
+    if now_ts - _SPORTY_CACHE.get("live_sync", 0) < 120:
+        return _SPORTY_CACHE.get("live_events", [])
+    return []
 
 
 def sync_sporty_cache():

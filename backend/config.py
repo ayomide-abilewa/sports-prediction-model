@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # SportyBet
     sportybet_enabled: bool = False
 
+    # API & Frontend URLs (for Telegram Bot and Remote Deployments)
+    api_base_url: str = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+    webapp_url: str = os.getenv("TELEGRAM_WEBAPP_URL", "")
+
     # App
     secret_key: str = "dev-secret-key-super-secure-change-in-prod-12345"
     environment: Literal["development", "staging", "production"] = "development"

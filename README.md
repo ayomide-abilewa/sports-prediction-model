@@ -141,6 +141,17 @@ npm run dev
 # Dashboard available at: http://localhost:3000
 ```
 
+## Deploying the Dashboard to Vercel
+
+Vercel hosts the Next.js dashboard. The FastAPI backend is a separate service; deploy it to a persistent Python host (for example Render or Railway) and use a managed PostgreSQL database for production. The app uses background sync jobs and SQLite by default, so deploying only to Vercel will publish the interface but live API data and booking requests will not work.
+
+1. Push this repository to GitHub and import it in Vercel.
+2. Set **Root Directory** to `frontend` (leave the install and build commands at their defaults).
+3. Add the environment variable `NEXT_PUBLIC_API_URL` with the public HTTPS base URL of the deployed FastAPI service, with no trailing slash (for example `https://your-api.example.com`).
+4. Deploy. The frontend reads this value for both server rendered pages and browser API calls.
+
+For the backend host, run `uvicorn backend.main:app --host 0.0.0.0 --port $PORT` from the repository root and configure `DATABASE_URL` for a managed PostgreSQL database (async SQLAlchemy URL, such as `postgresql+asyncpg://...`). Ensure the host installs the project dependencies from `pyproject.toml`, including `asyncpg`. Set `ENVIRONMENT=production` and a unique `SECRET_KEY`. SQLite on an ephemeral host filesystem will lose data on restart. Configure the backend's CORS allowlist for the Vercel domain if you restrict CORS origins.
+
 ---
 
 ## License

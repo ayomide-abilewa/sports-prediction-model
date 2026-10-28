@@ -41,29 +41,35 @@ class InPlayPredictionEngine:
             live_stats: In-game stats (possession, shots, shots_on_target, corners, etc.)
         """
         stats = live_stats or {}
-        possession_h = stats.get("possession_home", 50.0)
-        sot_h = stats.get("shots_on_target_home", 2)
-        sot_a = stats.get("shots_on_target_away", 2)
-        red_cards_h = stats.get("red_cards_home", 0)
-        red_cards_a = stats.get("red_cards_away", 0)
-        corners_h = stats.get("corners_home", 3)
-        corners_a = stats.get("corners_away", 2)
-        cards_h = stats.get("cards_home", 1)
-        cards_a = stats.get("cards_away", 1)
+        possession_h = stats.get("possession_home")
+        sot_h = stats.get("shots_on_target_home")
+        sot_a = stats.get("shots_on_target_away")
+        red_cards_h = stats.get("red_cards_home", 0) or 0
+        red_cards_a = stats.get("red_cards_away", 0) or 0
+        corners_h = stats.get("corners_home")
+        corners_a = stats.get("corners_away")
+        cards_h = stats.get("cards_home")
+        cards_a = stats.get("cards_away")
 
         # 1. Remaining time fraction
         elapsed = min(max(minute, 1), 94)
         rem_fraction = max(1.0, 90.0 - elapsed) / 90.0
 
         # 2. In-game momentum factors
-        sot_total = sot_h + sot_a
-        sot_diff = sot_h - sot_a
-        momentum_h = 1.0 + (0.20 * (sot_diff / max(1, sot_total)))
-        momentum_a = 1.0 - (0.20 * (sot_diff / max(1, sot_total)))
+        if sot_h is not None and sot_a is not None:
+            sot_total = sot_h + sot_a
+            sot_diff = sot_h - sot_a
+            momentum_h = 1.0 + (0.20 * (sot_diff / max(1, sot_total)))
+            momentum_a = 1.0 - (0.20 * (sot_diff / max(1, sot_total)))
+        else:
+            momentum_h = momentum_a = 1.0
 
         # Possession skew
-        poss_factor_h = (possession_h / 50.0) ** 0.4
-        poss_factor_a = ((100.0 - possession_h) / 50.0) ** 0.4
+        if possession_h is not None and 0 < possession_h < 100:
+            poss_factor_h = (possession_h / 50.0) ** 0.4
+            poss_factor_a = ((100.0 - possession_h) / 50.0) ** 0.4
+        else:
+            poss_factor_h = poss_factor_a = 1.0
 
         # Red card adjustment
         red_factor_h = 0.65 if red_cards_h > 0 else 1.0
@@ -151,9 +157,10 @@ class InPlayPredictionEngine:
             }
 
         # 7. Live GG / NG (Both Teams to Score)
-        if score_home >= 1 and score_away >= 1:
-            p_gg = 1.0
-            p_ng = 0.0
+        btts_settled = score_home >= 1 and score_away >= 1
+        if btts_settled:
+            p_gg = None
+            p_ng = None
         elif score_home >= 1 and score_away == 0:
             p_gg = float(1.0 - math.exp(-mu_rem))
             p_ng = float(1.0 - p_gg)
@@ -165,13 +172,8 @@ class InPlayPredictionEngine:
             p_ng = float(1.0 - p_gg)
 
         # 8. Live Corners & Cards Projection
-        total_curr_corners = corners_h + corners_a
-        exp_rem_corners = 9.5 * rem_fraction
-        proj_corners = round(total_curr_corners + exp_rem_corners, 1)
-
-        total_curr_cards = cards_h + cards_a
-        exp_rem_cards = 4.2 * rem_fraction
-        proj_cards = round(total_curr_cards + exp_rem_cards, 1)
+        proj_corners = round(corners_h + corners_a + 9.5 * rem_fraction, 1) if corners_h is not None and corners_a is not None else None
+        proj_cards = round(cards_h + cards_a + 4.2 * rem_fraction, 1) if cards_h is not None and cards_a is not None else None
 
         # 9. Formulate Live In-Play Recommendations ("What to Carry")
         evaluated_in_play: list[dict[str, Any]] = []
@@ -186,9 +188,12 @@ class InPlayPredictionEngine:
             ("Next Goal", f"Next Goal: {home_team}", prob_next_home, 1.0 / max(prob_next_home, 0.01)),
             ("Next Goal", f"Next Goal: {away_team}", prob_next_away, 1.0 / max(prob_next_away, 0.01)),
             ("Next Goal", "No More Goals", prob_no_more_goals, 1.0 / max(prob_no_more_goals, 0.01)),
-            ("Live GG / NG", "GG (Both Teams Score - Yes)", p_gg, 1.0 / max(p_gg, 0.01)),
-            ("Live GG / NG", "NG (Clean Sheet from here - No)", p_ng, 1.0 / max(p_ng, 0.01)),
         ]
+        if not btts_settled:
+            candidates.extend([
+                ("Live GG / NG", "GG (Both Teams Score - Yes)", p_gg, 1.0 / max(p_gg, 0.01)),
+                ("Live GG / NG", "NG (Clean Sheet from here - No)", p_ng, 1.0 / max(p_ng, 0.01)),
+            ])
 
         # Add live totals
         for line_key, ou in totals.items():
@@ -197,23 +202,27 @@ class InPlayPredictionEngine:
             candidates.append(("Live Match Goals", f"Under {line_val} Goals", ou["under"], 1.0 / max(ou["under"], 0.01)))
 
         for m_cat, sel, p, f_odds in candidates:
-            if p < 0.25:
+            if p is None or p < 0.25 or p >= 0.995:
                 continue
-            live_odds = round(max(1.05, f_odds * 0.94), 2)
             evaluated_in_play.append({
                 "market": m_cat,
                 "selection": sel,
                 "probability": round(p, 4),
-                "live_odds": live_odds,
+                "fair_odds": round(f_odds, 2),
+                "live_odds": None,
                 "confidence_tier": (
                     "Tier 1 – In-Play Banker" if p >= 0.75
                     else ("Tier 2 – High Conviction" if p >= 0.60 else "Solid Value")
                 ),
             })
+            evaluated_in_play[-1]["confidence_tier"] = "Uncalibrated model estimate"
 
         # Rank to find the #1 Surest In-Play Call
         evaluated_in_play.sort(key=lambda x: x["probability"], reverse=True)
-        surest_in_play = evaluated_in_play[0] if evaluated_in_play else None
+        surest_in_play = next(
+            (pick for pick in evaluated_in_play if pick["market"] in {"Next Goal", "Live Match Goals"}),
+            None,
+        )
 
         # Build analytical live narrative
         narrative = self._generate_in_play_narrative(
@@ -246,8 +255,8 @@ class InPlayPredictionEngine:
             },
             "totals": totals,
             "btts": {
-                "gg": round(p_gg, 4),
-                "ng": round(p_ng, 4),
+                "gg": round(p_gg, 4) if p_gg is not None else None,
+                "ng": round(p_ng, 4) if p_ng is not None else None,
             },
             "projected_corners": proj_corners,
             "projected_cards": proj_cards,
@@ -269,25 +278,14 @@ class InPlayPredictionEngine:
         mu_rem: float,
         stats: dict[str, Any],
     ) -> str:
-        lead = score_h - score_a
-        time_left = max(1, 90 - minute)
-        pick_str = f"'{surest['selection']}' ({surest['probability'] * 100:.0f}% certainty)" if surest else "Under current line"
-
-        if lead > 0:
-            return (
-                f"{minute}' Live: {home} leads {score_h}-{score_a}. With {time_left} mins remaining, "
-                f"{home}'s defensive block and clock management make {pick_str} the primary mathematical in-play position to carry."
-            )
-        elif lead < 0:
-            return (
-                f"{minute}' Live: {away} holds a {score_h}-{score_a} advantage. {home} is forced to commit forward, "
-                f"creating transitional open spaces. Best in-play posture: {pick_str}."
-            )
-        else:
-            return (
-                f"{minute}' Live: Level at {score_h}-{score_a}. Projected remaining scoring output is {lambda_rem + mu_rem:.2f} xG. "
-                f"Tactical tempo and shot metrics pinpoint {pick_str} as the optimal in-play market to carry."
-            )
+        pick_note = (
+            f"Model outlook: {surest['selection']} at {surest['probability'] * 100:.1f}%. "
+            if surest else "No supported open market forecast is available. "
+        )
+        return (
+            f"{minute}' live, score {score_h}-{score_a}. Team-history model estimates "
+            f"{lambda_rem + mu_rem:.2f} remaining xG. {pick_note}This estimate is uncalibrated; live bookmaker odds are unavailable."
+        )
 
 
 in_play_engine = InPlayPredictionEngine()

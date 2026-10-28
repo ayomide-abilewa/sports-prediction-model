@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -170,6 +170,29 @@ class IngestionScheduler:
                                     is_closing=True,
                                 )
                                 session.add(odds_entry)
+
+                    # Reconcile live-feed prediction records with verified final
+                    # scores from Football-Data when the same teams and kickoff match.
+                    if rec["status"] == "finished":
+                        result_window_start = rec["kickoff"] - timedelta(hours=4)
+                        result_window_end = rec["kickoff"] + timedelta(hours=4)
+                        live_fixture_res = await session.execute(
+                            select(Match).where(
+                                Match.source.like("sportybet:%"),
+                                Match.home_team_id == home_team.id,
+                                Match.away_team_id == away_team.id,
+                                Match.kickoff >= result_window_start,
+                                Match.kickoff <= result_window_end,
+                                Match.status == "scheduled",
+                            )
+                        )
+                        for live_fixture in live_fixture_res.scalars().all():
+                            live_fixture.ft_home_goals = rec["ft_home_goals"]
+                            live_fixture.ft_away_goals = rec["ft_away_goals"]
+                            live_fixture.ht_home_goals = rec["ht_home_goals"]
+                            live_fixture.ht_away_goals = rec["ht_away_goals"]
+                            live_fixture.status = "finished"
+                            result.records_updated += 1
 
                 await session.commit()
                 result.complete()

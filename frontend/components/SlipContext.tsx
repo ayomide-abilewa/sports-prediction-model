@@ -46,7 +46,15 @@ export function SlipProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try {
       const saved = localStorage.getItem("bet_slip_legs");
-      if (saved) setLegs(JSON.parse(saved));
+      if (saved) {
+        const parsed = JSON.parse(saved) as SlipLeg[];
+        // Previous live picks used invented prices, so never restore them into a bet slip.
+        const current = parsed.filter((leg) => !/^(live\s|next goal)/i.test(leg.market));
+        setLegs(current);
+        if (current.length !== parsed.length) {
+          localStorage.setItem("bet_slip_legs", JSON.stringify(current));
+        }
+      }
     } catch (e) {}
   }, []);
 
@@ -111,7 +119,7 @@ export function SlipProvider({ children }: { children: React.ReactNode }) {
   const generateBookingCode = async (): Promise<string | null> => {
     setBookingError(null);
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/accumulators/custom", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/accumulators/custom`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

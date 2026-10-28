@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 async function getSummaryData() {
   try {
-    const res = await fetch("http://127.0.0.1:8000/api/v1/performance/summary", { cache: "no-store" });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/performance/summary`, { cache: "no-store" });
     if (!res.ok) return null;
     return await res.json();
   } catch (e) {
@@ -17,7 +17,7 @@ async function getSummaryData() {
 
 async function getLiveMatches() {
   try {
-    const res = await fetch("http://127.0.0.1:8000/api/v1/in-play", { cache: "no-store" });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/in-play`, { cache: "no-store" });
     if (!res.ok) return [];
     return await res.json();
   } catch (e) {
@@ -27,7 +27,7 @@ async function getLiveMatches() {
 
 async function getMatchPredictions() {
   try {
-    const res = await fetch("http://127.0.0.1:8000/api/v1/predictions/matches?limit=120", { cache: "no-store" });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/predictions/matches?limit=120`, { cache: "no-store" });
     if (!res.ok) return [];
     return await res.json();
   } catch (e) {
@@ -37,7 +37,7 @@ async function getMatchPredictions() {
 
 async function getPredictions() {
   try {
-    const res = await fetch("http://127.0.0.1:8000/api/v1/predictions?limit=10", { cache: "no-store" });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/predictions?limit=10`, { cache: "no-store" });
     if (!res.ok) return [];
     return await res.json();
   } catch (e) {
@@ -47,7 +47,7 @@ async function getPredictions() {
 
 async function getAuditData() {
   try {
-    const res = await fetch("http://127.0.0.1:8000/api/v1/performance/audit", { cache: "no-store" });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/api/v1/performance/audit`, { cache: "no-store" });
     if (!res.ok) return null;
     return await res.json();
   } catch (e) {
@@ -56,15 +56,18 @@ async function getAuditData() {
 }
 
 export default async function DashboardPage() {
-  const summary = await getSummaryData();
-  const liveMatches = await getLiveMatches();
-  const matches = await getMatchPredictions();
-  const predictions = await getPredictions();
-  const auditData = await getAuditData();
+  const [summary, liveMatches, matches, predictions, auditData] = await Promise.all([
+    getSummaryData(),
+    getLiveMatches(),
+    getMatchPredictions(),
+    getPredictions(),
+    getAuditData(),
+  ]);
 
-  const totalMatches = summary?.dataset_statistics?.total_matches || 1242;
-  const totalLeagues = summary?.dataset_statistics?.active_leagues || 13;
-  const totalOdds = summary?.dataset_statistics?.total_odds_records || 3600;
+  const totalMatches = summary?.dataset_statistics?.total_matches ?? 0;
+  const totalLeagues = summary?.dataset_statistics?.active_leagues ?? 0;
+  const totalOdds = summary?.dataset_statistics?.total_odds_records ?? 0;
+  const settledPredictions = summary?.dataset_statistics?.settled_predictions ?? 0;
 
   return (
     <div className="space-y-10">
@@ -79,7 +82,7 @@ export default async function DashboardPage() {
             AI Football Probability Engine
           </h1>
           <p className="text-gray-400 text-sm mt-1 max-w-2xl leading-relaxed">
-            Real-time bivariate Poisson scoring distributions, live in-play predictions ("what to carry"), AI surest predictions, and SportyBet booking code slip builder.
+            Live scores, match forecasts with their data source shown, fixture markets, accumulator building, and tracked results.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -103,31 +106,31 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-[#111827] border border-gray-800/80 rounded-xl p-5 shadow">
           <div className="flex items-center justify-between text-gray-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Analyzed Matches</span>
+            <span className="text-xs font-medium uppercase tracking-wider">Stored Matches</span>
             <Trophy className="h-4 w-4 text-emerald-400" />
           </div>
           <p className="text-2xl font-bold text-white">{totalMatches.toLocaleString()}</p>
           <p className="text-xs text-emerald-400/80 mt-1 flex items-center gap-1">
-            <CheckCircle2 className="h-3 w-3" /> 13 Competitions (UCL, EPL, La Liga)
+            <CheckCircle2 className="h-3 w-3" /> {totalLeagues} configured competitions
           </p>
         </div>
 
         <div className="bg-[#111827] border border-gray-800/80 rounded-xl p-5 shadow">
           <div className="flex items-center justify-between text-gray-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Active Odds Feeds</span>
+            <span className="text-xs font-medium uppercase tracking-wider">Stored Odds Records</span>
             <TrendingUp className="h-4 w-4 text-blue-400" />
           </div>
           <p className="text-2xl font-bold text-white">{totalOdds.toLocaleString()}</p>
-          <p className="text-xs text-gray-400 mt-1">Bet365, Pinnacle, SportyBet</p>
+          <p className="text-xs text-gray-400 mt-1">Bookmaker sources vary by competition</p>
         </div>
 
         <div className="bg-[#111827] border border-gray-800/80 rounded-xl p-5 shadow">
           <div className="flex items-center justify-between text-gray-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Calibration Score</span>
+            <span className="text-xs font-medium uppercase tracking-wider">Graded Predictions</span>
             <Shield className="h-4 w-4 text-amber-400" />
           </div>
-          <p className="text-2xl font-bold text-white">0.1897</p>
-          <p className="text-xs text-emerald-400 mt-1">Brier score (Well-calibrated)</p>
+          <p className="text-2xl font-bold text-white">{settledPredictions ? settledPredictions.toLocaleString() : "—"}</p>
+          <p className="text-xs text-gray-400 mt-1">Settled predictions · calibration not yet measured</p>
         </div>
 
         <div className="bg-[#111827] border border-gray-800/80 rounded-xl p-5 shadow">
@@ -135,8 +138,8 @@ export default async function DashboardPage() {
             <span className="text-xs font-medium uppercase tracking-wider">Closing Edge (CLV)</span>
             <ArrowUpRight className="h-4 w-4 text-purple-400" />
           </div>
-          <p className="text-2xl font-bold text-emerald-400">+4.2%</p>
-          <p className="text-xs text-gray-400 mt-1">vs Pinnacle closing lines</p>
+          <p className="text-2xl font-bold text-gray-400">—</p>
+          <p className="text-xs text-gray-400 mt-1">Closing odds tracking not available</p>
         </div>
       </div>
 

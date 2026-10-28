@@ -96,7 +96,14 @@ async def run_bot_polling(token: str):
 def main():
     parser = argparse.ArgumentParser(description="Run Telegram Bot Polling Service")
     parser.add_argument("--token", default="", help="Telegram Bot Token from @BotFather")
+    parser.add_argument("--api-url", default="", help="Base URL of your hosted backend API (e.g. https://my-backend.railway.app)")
+    parser.add_argument("--app-url", default="", help="URL of your hosted web frontend / Mini App (e.g. https://my-frontend.vercel.app)")
     args = parser.parse_args()
+
+    if args.api_url:
+        settings.api_base_url = args.api_url.rstrip("/")
+    if args.app_url:
+        settings.webapp_url = args.app_url.rstrip("/")
 
     token = args.token or settings.telegram_bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
@@ -108,11 +115,15 @@ def main():
             "2. Send [bold]/newbot[/bold] and follow instructions to get your API Token\n"
             "3. Either:\n"
             "   a) Add it to your [bold].env[/bold] file: [green]TELEGRAM_BOT_TOKEN=123456:ABC-DEF...[/green]\n"
-            "   b) Or run with: [green]python scripts/run_telegram_bot.py --token <YOUR_TOKEN>[/green]",
+            "   b) Or run with: [green]python scripts/run_telegram_bot.py --token <YOUR_TOKEN> --api-url <YOUR_HOSTED_BACKEND_URL>[/green]",
             title="Setup Telegram Bot",
             border_style="yellow",
         ))
         return
+
+    console.print(f"[bold cyan]Connected to backend API:[/bold cyan] {settings.api_base_url}")
+    if settings.webapp_url:
+        console.print(f"[bold cyan]Web App Mini App URL:[/bold cyan] {settings.webapp_url}")
 
     try:
         asyncio.run(run_bot_polling(token))

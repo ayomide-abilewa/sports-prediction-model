@@ -25,20 +25,21 @@ export interface AuditFixture {
   kickoff_time?: string;
   time_ago?: string;
   ft_score: string;
+  pick_tracking?: string;
   main_pick: {
     name: string;
     market: string;
     probability: number;
-    odds: number;
-    status: "won" | "lost" | "push";
+    odds: number | null;
+    status: "won" | "lost" | "push" | "pending" | "ungraded";
     status_symbol: string;
-    profit: number;
+    profit: number | null;
   };
-  best_prop: {
+  best_prop?: {
     name: string;
     market: string;
     probability: number;
-    status: "won" | "lost" | "push";
+    status: "won" | "lost" | "push" | "pending" | "ungraded";
     status_symbol: string;
     stat_detail: string;
   };
@@ -64,7 +65,7 @@ export interface AuditReportData {
       pushes: number;
       win_rate: number;
     };
-    brier_calibration: number;
+    brier_calibration: number | null;
   };
   formatted_text: string;
   fixtures: AuditFixture[];
@@ -123,7 +124,7 @@ export default function RecentPicksAudit({ data }: { data: AuditReportData }) {
               <span>{data.title}</span>
             </h2>
             <p className="text-xs sm:text-sm text-gray-400 mt-1 max-w-2xl">
-              {data.subtitle}. Every prediction is graded upon final whistle with verified unit returns, calibration score, and prop tracking.
+              {data.subtitle}
             </p>
           </div>
 
@@ -190,10 +191,10 @@ export default function RecentPicksAudit({ data }: { data: AuditReportData }) {
               <Sparkles className="h-3.5 w-3.5 text-blue-400" />
             </div>
             <p className="text-xl sm:text-2xl font-black text-white font-mono">
-              {data.summary.brier_calibration.toFixed(4)}
+              {data.summary.brier_calibration == null ? "Not measured" : data.summary.brier_calibration.toFixed(4)}
             </p>
             <p className="text-xs text-emerald-400 font-mono font-bold mt-0.5">
-              Target &lt; 0.20 (Well-Calibrated)
+              Measured only after saved predictions are graded
             </p>
           </div>
         </div>
@@ -207,7 +208,7 @@ export default function RecentPicksAudit({ data }: { data: AuditReportData }) {
             📅 When were these matches played?
           </p>
           <p className="text-gray-400 leading-relaxed">
-            These fixtures were completed this past weekend on <strong>Sunday, 25 October 2026</strong> across the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, and Eredivisie. Kickoff times below are displayed in <strong>West Africa Time (WAT)</strong>. Use the filters to view by competition or search for specific clubs.
+            Only saved forecasts with completed scores are shown. Kickoff times and competition names come from the stored fixture records.
           </p>
         </div>
       </div>
@@ -296,11 +297,14 @@ export default function RecentPicksAudit({ data }: { data: AuditReportData }) {
         ) : (
           filteredFixtures.map((f, i) => {
             const mainWon = f.main_pick.status === "won";
+            const mainPending = f.main_pick.status === "pending";
             return (
               <div
                 key={i}
                 className={`p-4 rounded-xl border transition flex flex-col justify-between gap-3 ${
-                  mainWon
+                  mainPending
+                    ? "bg-gray-950/80 border-gray-800"
+                    : mainWon
                     ? "bg-[#111827]/90 border-gray-800 hover:border-emerald-500/40"
                     : "bg-gray-950/80 border-gray-900 hover:border-red-500/40"
                 }`}
@@ -314,7 +318,7 @@ export default function RecentPicksAudit({ data }: { data: AuditReportData }) {
                         {f.league}
                       </span>
                       <span className="text-xs font-mono font-black px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
-                        FT: {f.ft_score}
+                        {f.ft_score === "Pending result" || f.ft_score === "Result unavailable" ? f.ft_score : `FT: ${f.ft_score}`}
                       </span>
                     </div>
                   </div>
@@ -323,11 +327,11 @@ export default function RecentPicksAudit({ data }: { data: AuditReportData }) {
                   <div className="flex items-center justify-between text-[11px] text-gray-400 font-mono pt-1 pb-2 border-b border-gray-800/60">
                     <span className="flex items-center gap-1 text-emerald-400 font-semibold">
                       <Clock className="h-3 w-3 text-emerald-400" />
-                      <span>{f.played_date || "Sun, 25 Oct 2026"}</span>
+                      <span>{f.played_date || "Date unavailable"}</span>
                       {f.kickoff_time && <span className="text-gray-300">• {f.kickoff_time}</span>}
                     </span>
                     <span className="text-gray-500 text-[10px]">
-                      {f.matchday || "Matchday 9"}
+                      {f.matchday || ""}
                     </span>
                   </div>
                 </div>
@@ -345,29 +349,34 @@ export default function RecentPicksAudit({ data }: { data: AuditReportData }) {
                             ({(f.main_pick.probability * 100).toFixed(0)}%)
                           </span>
                           <span className="text-[11px] font-mono text-gray-300 font-bold">
-                            @{f.main_pick.odds.toFixed(2)}
+                            {f.main_pick.odds ? `@${f.main_pick.odds.toFixed(2)}` : "odds unavailable"}
                           </span>
                         </div>
                         <span className="text-[10px] uppercase font-mono text-gray-500">
-                          Main Pick • {f.main_pick.market}
+                          Main Pick • {f.main_pick.market}{f.pick_tracking === "reconstructed from saved forecasts" ? " • Reconstructed" : " • Carried"}
                         </span>
                       </div>
                     </div>
 
                     <span
                       className={`font-mono font-bold text-xs px-2 py-0.5 rounded ${
-                        f.main_pick.profit >= 0
+                        f.main_pick.status === "pending"
+                          ? "bg-amber-950/50 text-amber-300 border border-amber-900"
+                          : f.main_pick.status === "ungraded"
+                          ? "bg-gray-900 text-gray-400 border border-gray-800"
+                          : f.main_pick.profit == null
+                          ? "bg-gray-900 text-gray-400 border border-gray-800"
+                          : f.main_pick.profit >= 0
                           ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
                           : "bg-red-950 text-red-400 border border-red-800"
                       }`}
                     >
-                      {f.main_pick.profit >= 0 ? "+" : ""}
-                      {f.main_pick.profit.toFixed(2)}u
+                      {f.main_pick.status === "pending" ? (f.ft_score === "Result unavailable" ? "Final score unavailable" : "Awaiting result") : f.main_pick.status === "ungraded" ? "Result received · market not gradeable" : f.main_pick.profit == null ? "No odds tracked" : `${f.main_pick.profit >= 0 ? "+" : ""}${f.main_pick.profit.toFixed(2)}u`}
                     </span>
                   </div>
 
                   {/* 🔥 Best Prop */}
-                  <div className="p-2.5 rounded-lg bg-gray-950/70 border border-gray-800/80 flex items-center justify-between gap-2">
+                  {f.best_prop && <div className="p-2.5 rounded-lg bg-gray-950/70 border border-gray-800/80 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="text-base">{f.best_prop.status_symbol}</span>
                       <div>
@@ -384,9 +393,9 @@ export default function RecentPicksAudit({ data }: { data: AuditReportData }) {
                     </div>
 
                     <span className="font-mono text-xs text-gray-400 bg-gray-900 px-2 py-0.5 rounded border border-gray-800">
-                      {f.best_prop.stat_detail}
+                      {f.best_prop.stat_detail || f.best_prop.status}
                     </span>
-                  </div>
+                  </div>}
                 </div>
               </div>
             );

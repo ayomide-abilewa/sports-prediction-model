@@ -18,6 +18,8 @@ export interface SurestPickItem {
   market_id?: string;
   outcome_id?: string;
   specifier?: string;
+  odds_source?: string;
+  probability_source?: string;
 }
 
 export interface FixtureItem {
@@ -250,7 +252,9 @@ export default function MatchList({ fixtures }: { fixtures: FixtureItem[] }) {
                           </h4>
                         </div>
                         <div className="text-right">
-                          <span className="text-xs text-gray-400 font-mono block">Sporty Odds</span>
+                          <span className="text-xs text-gray-400 font-mono block">
+                            {match.surest_prediction.odds_source === "model_fair" ? "Model fair odds" : "Bookmaker odds"}
+                          </span>
                           <span className="text-lg font-black text-white font-mono">
                             {match.surest_prediction.odds.toFixed(2)}
                           </span>
@@ -260,7 +264,7 @@ export default function MatchList({ fixtures }: { fixtures: FixtureItem[] }) {
                       {/* Conviction Bar */}
                       <div className="mt-2.5">
                         <div className="flex justify-between text-[11px] font-mono text-gray-400 mb-1">
-                          <span>Model Win Probability</span>
+                          <span>{match.surest_prediction.probability_source === "market" ? "Market implied probability" : "Model probability"}</span>
                           <span className="text-emerald-400 font-bold">
                             {(match.surest_prediction.prob * 100).toFixed(0)}% Conviction
                           </span>

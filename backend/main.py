@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import structlog
@@ -9,8 +11,27 @@ from backend.api import accumulators, audit, fixtures, in_play, matches, perform
 from backend.config import settings
 from backend.db.init_db import seed_initial_data
 from backend.ingestion.sportybet_service import start_sporty_background_sync
+from backend.ingestion.scheduler import IngestionScheduler
+from backend.ingestion.football_data_uk import FootballDataUKAdapter
 
 logger = structlog.get_logger()
+
+
+async def _refresh_results_periodically() -> None:
+    adapter = FootballDataUKAdapter()
+    scheduler = IngestionScheduler()
+    while True:
+        now = datetime.now(timezone.utc)
+        season_start = now.year if now.month >= 7 else now.year - 1
+        season_code = f"{season_start % 100:02d}{(season_start + 1) % 100:02d}"
+        for league_code in adapter.LEAGUE_MAP:
+            try:
+                result = await scheduler.ingest_league_season(league_code, season_code)
+                if result.errors:
+                    logger.warning("scheduled_results_refresh_partial", league=league_code, errors=result.errors)
+            except Exception as exc:
+                logger.warning("scheduled_results_refresh_failed", league=league_code, error=str(exc))
+        await asyncio.sleep(6 * 60 * 60)
 
 
 @asynccontextmanager
@@ -27,6 +48,7 @@ async def lifespan(app: FastAPI):
         await start_sporty_background_sync()
     except Exception as exc:
         logger.warning("sporty_background_sync_warning", error=str(exc))
+    asyncio.create_task(_refresh_results_periodically())
     yield
     logger.info("server_shutdown")
 

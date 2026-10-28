@@ -80,28 +80,11 @@ async def seed_european_cups():
                 await db.flush()
             return t
 
-        # UCL Fixtures
-        ucl_fixtures = [
-            ("Real Madrid", "Manchester City", "2026-10-27T20:00:00", {"h": 2.50, "d": 3.40, "a": 2.70, "o25": 1.65, "u25": 2.20}),
-            ("Bayern Munich", "Paris Saint-Germain", "2026-10-27T20:00:00", {"h": 1.95, "d": 3.75, "a": 3.60, "o25": 1.55, "u25": 2.40}),
-            ("Arsenal", "Inter", "2026-10-28T20:00:00", {"h": 1.85, "d": 3.50, "a": 4.20, "o25": 1.80, "u25": 2.00}),
-            ("Barcelona", "Atalanta", "2026-10-28T20:00:00", {"h": 1.45, "d": 4.80, "a": 6.50, "o25": 1.40, "u25": 2.90}),
-            ("Liverpool", "Bayer Leverkusen", "2026-10-28T20:00:00", {"h": 1.70, "d": 4.00, "a": 4.50, "o25": 1.50, "u25": 2.50}),
-            ("Atletico Madrid", "Juventus", "2026-10-28T20:00:00", {"h": 2.10, "d": 3.20, "a": 3.60, "o25": 2.15, "u25": 1.68}),
-            ("Borussia Dortmund", "Celtic", "2026-10-27T20:00:00", {"h": 1.50, "d": 4.50, "a": 5.80, "o25": 1.45, "u25": 2.70}),
-            ("Aston Villa", "Bologna", "2026-10-27T20:00:00", {"h": 1.75, "d": 3.60, "a": 4.60, "o25": 1.85, "u25": 1.95}),
-        ]
-
-        # UEL Fixtures
-        uel_fixtures = [
-            ("Manchester United", "Porto", "2026-10-29T20:00:00", {"h": 2.30, "d": 3.35, "a": 3.10, "o25": 1.80, "u25": 2.00}),
-            ("Tottenham", "Roma", "2026-10-29T20:00:00", {"h": 1.85, "d": 3.70, "a": 3.90, "o25": 1.60, "u25": 2.30}),
-            ("Athletic Club", "AZ Alkmaar", "2026-10-29T20:00:00", {"h": 1.65, "d": 3.80, "a": 5.00, "o25": 1.75, "u25": 2.05}),
-            ("Lyon", "Besiktas", "2026-10-29T20:00:00", {"h": 1.60, "d": 4.10, "a": 5.25, "o25": 1.60, "u25": 2.30}),
-            ("Lazio", "Nice", "2026-10-29T20:00:00", {"h": 1.80, "d": 3.50, "a": 4.50, "o25": 1.95, "u25": 1.85}),
-            ("Ajax", "Galatasaray", "2026-10-29T20:00:00", {"h": 2.15, "d": 3.50, "a": 3.20, "o25": 1.65, "u25": 2.20}),
-            ("Real Sociedad", "Anderlecht", "2026-10-29T20:00:00", {"h": 1.55, "d": 4.00, "a": 6.00, "o25": 1.80, "u25": 2.00}),
-        ]
+        # Do not hardcode current fixtures or bookmaker odds here. They drift and
+        # have previously published invented 2026 dates for 2024/25 competitions.
+        # Upcoming events must come from a live fixture provider.
+        ucl_fixtures = []
+        uel_fixtures = []
 
         # Insert UCL matches
         for home_n, away_n, kickoff_str, odds_dict in ucl_fixtures:
@@ -166,7 +149,7 @@ async def seed_european_cups():
                 db.add(MarketOdds(match_id=match.id, bookmaker_id=b365.id, market_type="over_under_2.5", selection="under", odds=odds_dict["u25"]))
 
         await db.commit()
-        print("Successfully seeded UEFA Champions League and UEFA Europa League fixtures!")
+        print("European competition metadata checked; no fixtures were hardcoded.")
 
 
 if __name__ == "__main__":

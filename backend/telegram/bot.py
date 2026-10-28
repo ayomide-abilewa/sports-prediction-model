@@ -17,11 +17,11 @@ logger = structlog.get_logger()
 
 BOT_KEYBOARD = {
     "keyboard": [
-        [{"text": "Today's fixtures"}, {"text": "Predictions"}],
-        [{"text": "Bankers"}, {"text": "2x Banker Slip"}],
-        [{"text": "5x Core Slip"}, {"text": "15x Sharp Slip"}],
-        [{"text": "High Yield"}, {"text": "Performance"}],
-        [{"text": "Help"}],
+        [{"text": "⚽ Today's Fixtures"}, {"text": "🎯 Daily Predictions"}],
+        [{"text": "🔒 Bankers Tier"}, {"text": "🎫 2x Banker Slip"}],
+        [{"text": "💎 5x Core Slip"}, {"text": "⚡ 15x Sharp Slip"}],
+        [{"text": "🚀 High Yield"}, {"text": "📋 Recent Picks Audit"}],
+        [{"text": "📊 Performance"}, {"text": "ℹ️ Help"}],
     ],
     "resize_keyboard": True,
     "is_persistent": True,
@@ -30,14 +30,28 @@ BOT_KEYBOARD = {
 
 BUTTON_COMMANDS = {
     "today's fixtures": "/today",
+    "⚽ today's fixtures": "/today",
     "predictions": "/predictions",
+    "🎯 daily predictions": "/predictions",
     "bankers": "/bankers",
+    "🔒 bankers tier": "/bankers",
     "2x banker slip": "/2_odds",
+    "🎫 2x banker slip": "/2_odds",
     "5x core slip": "/5_odds",
+    "💎 5x core slip": "/5_odds",
     "15x sharp slip": "/15_odds",
+    "⚡ 15x sharp slip": "/15_odds",
     "high yield": "/high_yield",
+    "🚀 high yield": "/high_yield",
+    "recent picks audit": "/audit",
+    "📋 recent picks audit": "/audit",
+    "audit": "/audit",
     "performance": "/performance",
+    "📊 performance": "/performance",
     "help": "/help",
+    "ℹ️ help": "/help",
+    "webapp": "/webapp",
+    "web app": "/webapp",
 }
 
 
@@ -127,7 +141,7 @@ class TelegramBotService:
             try:
                 # Query predictions API or internal calculation
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get("http://127.0.0.1:8000/api/v1/predictions?limit=5")
+                    resp = await client.get(f"{settings.api_base_url}/api/v1/predictions?limit=5")
                     if resp.status_code == 200:
                         preds = resp.json()
                         if preds:
@@ -167,7 +181,7 @@ class TelegramBotService:
 
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(f"http://127.0.0.1:8000/api/v1/accumulators?category={category}")
+                    resp = await client.get(f"{settings.api_base_url}/api/v1/accumulators?category={category}")
                     if resp.status_code == 200:
                         slips = resp.json()
                         if slips:
@@ -204,6 +218,15 @@ class TelegramBotService:
                 "• *CLV (Closing Line Value Edge):* `+4.2%` vs Pinnacle\n"
                 "• *Historical ROI (Flat Unit Simulation):* `+8.4%`\n"
                 "• *Analyzed Matches in DB:* `1,242`\n"
+            )
+
+        elif cmd in ("/webapp", "/app"):
+            webapp_url = settings.webapp_url or "http://localhost:3000"
+            return (
+                f"📱 *AI Football Prediction Engine Web Terminal*\n\n"
+                f"You can launch the full web interface directly:\n"
+                f"👉 [{webapp_url}]({webapp_url})\n\n"
+                f"Includes interactive betslip builder, SportyBet booking code generator, and live in-play momentum tracker."
             )
 
         elif cmd == "/subscribe":

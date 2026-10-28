@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 import httpx
 import numpy as np
@@ -260,6 +260,8 @@ class FootballDataUKAdapter(BaseAdapter):
             away_team, _ = team_mapper.resolve(raw_away)
 
             kickoff = self.parse_kickoff_datetime(row.get("Date"), row.get("Time"))
+            if kickoff < datetime.now(timezone.utc).replace(tzinfo=None):
+                continue
 
             # Odds
             odds_list: list[dict[str, Any]] = []
@@ -290,7 +292,10 @@ class FootballDataUKAdapter(BaseAdapter):
 
             match_record = {
                 "league_code": league_code,
-                "season_code": "2425",
+                "season_code": (
+                    f"{(kickoff.year if kickoff.month >= 7 else kickoff.year - 1) % 100:02d}"
+                    f"{((kickoff.year if kickoff.month >= 7 else kickoff.year - 1) + 1) % 100:02d}"
+                ),
                 "home_team": home_team,
                 "away_team": away_team,
                 "kickoff": kickoff,

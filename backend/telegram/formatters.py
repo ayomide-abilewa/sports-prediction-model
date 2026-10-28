@@ -82,7 +82,13 @@ class TelegramFormatter:
             )
 
         legs_formatted = "\n\n".join(legs_text)
-        code_block = f"\n🔖 *Booking Code (SportyBet):* `{booking_code}`" if booking_code else ""
+        code = booking_code or slip.get("booking_code")
+        share_url = slip.get("share_url")
+        code_block = ""
+        if code:
+            code_block = f"\n\n🔥 *SportyBet Code:* `{code}`"
+            if share_url:
+                code_block += f"\n🔗 [Load Directly on SportyBet.com]({share_url})"
 
         return (
             f"📋 *{slip_name.upper()}*\n"
@@ -90,7 +96,7 @@ class TelegramFormatter:
             f"{legs_formatted}\n\n"
             f"➖➖➖➖➖➖➖➖➖➖\n"
             f"🔢 *Total Legs:* `{len(slip.get('legs', []))}`\n"
-            f"🚀 *Combined Odds:* `{combined_odds:.2f}`\n"
+            f"🚀 *Combined Odds:* `{combined_odds:.2f}x`\n"
             f"🎯 *Joint Probability:* `{joint_prob * 100:.1f}%`\n"
             f"📈 *Expected Return:* `+{exp_return * 100:.1f}%`"
             f"{code_block}\n\n"

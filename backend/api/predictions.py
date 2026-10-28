@@ -15,6 +15,8 @@ from backend.db.engine import get_db
 from backend.models.league import Season
 from backend.models.match import Match
 from backend.models.odds import MarketOdds
+from backend.models.prediction import ModelVersion, Prediction
+from backend.services.sportybet_persistence import sporty_league_code
 from backend.probability.dixon_coles import DixonColesModel
 from backend.probability.markets import MarketEngine
 from backend.ingestion.sportybet_service import (
@@ -22,6 +24,7 @@ from backend.ingestion.sportybet_service import (
     fetch_sporty_event_detail,
     parse_sporty_markets,
 )
+from backend.ingestion.team_mapper import team_mapper
 
 router = APIRouter(prefix="/predictions", tags=["Predictions"])
 classifier = ConfidenceClassifier(min_ev_threshold=-0.05)
@@ -34,8 +37,16 @@ def generate_ai_rationale(
     selection: str,
     prob: float,
     pred: dict[str, Any],
+    probability_source: str = "model",
 ) -> str:
     """Generates an intuitive analytical summary explaining why the AI recommends this pick."""
+    if probability_source == "market":
+        return (
+            f"The available market prices imply {prob * 100:.1f}% for {selection} after removing "
+            "the bookmaker margin. Team-specific model coverage is unavailable for this fixture."
+        )
+    if not pred:
+        return "No team-specific historical model estimate is available for this fixture."
     exp = pred.get("expected_goals", {})
     exp_h = exp.get("home", 1.4)
     exp_a = exp.get("away", 1.1)
@@ -49,15 +60,13 @@ def generate_ai_rationale(
         return f"Evenly matched tactical contest. Both sides project balanced ratings, establishing a {prob * 100:.1f}% draw probability."
 
     elif market == "Double Chance":
-        return f"{selection} provides dual statistical safety across two of three possible match outcomes with an exceptional {prob * 100:.1f}% safety rate."
+        return f"{selection} covers two of the three match outcomes. The estimated probability is {prob * 100:.1f}%."
 
     elif market == "Draw No Bet":
         return f"Eliminating the draw outcome gives {selection} a decisive mathematical edge at {prob * 100:.1f}% confidence."
 
     elif market == "GG / NG":
-        if "GG" in selection or "Yes" in selection:
-            return f"Both attacks average over 1.25 xG per match. Open transitional tactical play heavily supports both teams finding the back of the net ({prob * 100:.1f}%)."
-        return f"At least one team expected to struggle offensively or maintain a disciplined low defensive block ({prob * 100:.1f}% clean-sheet expectation)."
+        return f"The forecast assigns {prob * 100:.1f}% probability to {selection}."
 
     elif market == "Match Goals":
         if "Over" in selection:
@@ -65,19 +74,19 @@ def generate_ai_rationale(
         return f"Defensive stability and low transitional tempo project a tight contest staying under the goal line ({prob * 100:.1f}% probability)."
 
     elif market == "Team Goals":
-        return f"Target team's attacking creation metrics comfortably exceed baseline concession rates ({prob * 100:.1f}% scoring certainty)."
+        return f"The goal model assigns {prob * 100:.1f}% probability to {selection}."
 
     elif market == "Clean Sheet":
-        return f"Defensive structure and goalkeeper shot-stopping metrics project high clean-sheet resilience ({prob * 100:.1f}%)."
+        return f"The forecast assigns {prob * 100:.1f}% probability to {selection}."
 
     elif market == "Handicap":
         return f"Margin-of-victory distribution projects favorable spread coverage for {selection} at {prob * 100:.1f}% probability."
 
     elif market == "Corners":
-        return f"Attacking wing width, cross frequency, and deflected shot volumes project match corners exceeding the threshold ({prob * 100:.1f}%)."
+        return f"The available corner market prices imply {prob * 100:.1f}% for {selection}."
 
     elif market == "Cards & Bookings":
-        return f"Referee disciplinary strictness and tactical foul frequency establish a reliable bookings line ({prob * 100:.1f}% probability)."
+        return f"The available card market prices imply {prob * 100:.1f}% for {selection}."
 
     return f"Statistical Poisson model establishes a {prob * 100:.1f}% mathematical probability based on historical ratings."
 
@@ -110,6 +119,7 @@ async def _get_fitted_model(db: AsyncSession) -> DixonColesModel | None:
     dc = DixonColesModel()
     try:
         dc.fit(pd.DataFrame(df_data))
+        dc.training_sample_count = len(df_data)
         return dc
     except Exception:
         return None
@@ -122,8 +132,18 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
     if not home or not away or not eid:
         return None
 
-    cat_name = ev.get("sport", {}).get("category", {}).get("name", "")
-    tourn_name = ev.get("sport", {}).get("category", {}).get("tournament", {}).get("name", "")
+    home, _ = team_mapper.resolve(str(home))
+    away, _ = team_mapper.resolve(str(away))
+
+    sport = ev.get("sport", {})
+    category = sport.get("category", {}) if isinstance(sport, dict) else {}
+    tournament = category.get("tournament", {}) if isinstance(category, dict) else {}
+    cat_name = category.get("name", "") if isinstance(category, dict) else ""
+    tourn_name = tournament.get("name", "") if isinstance(tournament, dict) else ""
+    cat_name = cat_name or ev.get("categoryName", "")
+    tournament_meta = ev.get("tournament", {})
+    tournament_fallback = tournament_meta.get("name", "") if isinstance(tournament_meta, dict) else str(tournament_meta or "")
+    tourn_name = tourn_name or ev.get("tournamentName", "") or tournament_fallback
     league_name = f"{tourn_name}" if tourn_name else (cat_name or "SportyBet Top League")
 
     start_ts = ev.get("estimateStartTime")
@@ -134,24 +154,53 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
     )
 
     parsed = parse_sporty_markets(ev)
-    if not parsed["corners"]:
-        detail = fetch_sporty_event_detail(eid)
-        if detail:
-            parsed = parse_sporty_markets(detail)
 
     try:
-        pred = dc.predict_match(home, away) if dc else {}
+        team_history = dc is not None and home in dc.team_idx and away in dc.team_idx
+        pred = dc.predict_match(home, away) if team_history else {}
     except Exception:
         pred = {}
 
-    exp_goals = pred.get("expected_goals", {"home": 1.45, "away": 1.15, "total": 2.6})
+    exp_goals = pred.get("expected_goals")
+
+    grouped_options: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for options in parsed.values():
+        for option in options:
+            key = (str(option.get("market_id")), str(option.get("specifier") or ""))
+            grouped_options.setdefault(key, []).append(option)
+
+    market_probabilities: dict[tuple[str, str, str], float] = {}
+    for (market_id, specifier), options in grouped_options.items():
+        valid = [option for option in options if option.get("odds", 0) > 1.0]
+        implied = [1.0 / option["odds"] for option in valid]
+        total = sum(implied)
+        if len(valid) >= 2 and total > 0:
+            for option, probability in zip(valid, implied):
+                market_probabilities[(market_id, specifier, str(option.get("outcome_id")))] = probability / total
+
+    def get_probability(option: dict[str, Any], model_probability: float | None = None) -> tuple[float, str] | None:
+        if model_probability is not None and 0.0 < model_probability < 1.0:
+            return model_probability, "model"
+        key = (str(option.get("market_id")), str(option.get("specifier") or ""), str(option.get("outcome_id")))
+        probability = market_probabilities.get(key)
+        return (probability, "market") if probability is not None else None
 
     evaluated_picks: list[dict[str, Any]] = []
 
     # 1. 1X2
     for opt in parsed["one_x_two"]:
         sel = opt["selection"]
-        prob = pred.get("1x2", {}).get(sel.lower(), 0.40) if pred else 0.40
+        result_key = sel.casefold().strip()
+        if result_key in {"1", "home", home.casefold()}:
+            result_key = "home"
+        elif result_key in {"x", "draw"}:
+            result_key = "draw"
+        elif result_key in {"2", "away", away.casefold()}:
+            result_key = "away"
+        estimate = get_probability(opt, pred.get("1x2", {}).get(result_key))
+        if not estimate:
+            continue
+        prob, prob_source = estimate
         evaluated_picks.append({
             "market_type": "1X2",
             "selection": f"{sel} to Win" if sel in ["Home", "Away"] else sel,
@@ -159,25 +208,27 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
             "fair_odds": round(1.0 / max(prob, 0.01), 2),
             "available_odds": opt["odds"],
             "expected_value": round((prob * opt["odds"]) - 1.0, 4),
-            "confidence_tier": "Tier 1 – Bankers" if prob >= 0.70 else "Sharp Value",
-            "ai_rationale": generate_ai_rationale(home, away, "1X2", sel, prob, pred),
+            "confidence_tier": "Model estimate" if prob_source == "model" else "Market implied",
+            "ai_rationale": generate_ai_rationale(home, away, "1X2", sel, prob, pred, prob_source),
             "event_id": eid,
             "market_id": opt["market_id"],
             "outcome_id": opt["outcome_id"],
             "specifier": opt["specifier"],
+            "probability_source": prob_source,
         })
 
     # 2. Double Chance
     for opt in parsed["double_chance"]:
         sel = opt["selection"]
-        prob = 0.75
-        if pred:
-            if "Home or Draw" in sel or "1X" in sel:
-                prob = pred.get("double_chance", {}).get("1x", 0.75)
-            elif "Draw or Away" in sel or "X2" in sel:
-                prob = pred.get("double_chance", {}).get("x2", 0.70)
-            elif "12" in sel:
-                prob = pred.get("double_chance", {}).get("12", 0.78)
+        lower_sel = sel.casefold()
+        model_key = "1x" if "1x" in lower_sel or "home or draw" in lower_sel else (
+            "x2" if "x2" in lower_sel or "draw or away" in lower_sel else "12"
+        )
+        model_probability = pred.get("double_chance", {}).get(model_key)
+        estimate = get_probability(opt, model_probability)
+        if not estimate:
+            continue
+        prob, prob_source = estimate
         evaluated_picks.append({
             "market_type": "Double Chance",
             "selection": sel,
@@ -185,35 +236,25 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
             "fair_odds": round(1.0 / max(prob, 0.01), 2),
             "available_odds": opt["odds"],
             "expected_value": round((prob * opt["odds"]) - 1.0, 4),
-            "confidence_tier": "Tier 1 – Bankers" if prob >= 0.70 else "Sharp Value",
-            "ai_rationale": generate_ai_rationale(home, away, "Double Chance", sel, prob, pred),
+            "confidence_tier": "Model estimate" if prob_source == "model" else "Market implied",
+            "ai_rationale": generate_ai_rationale(home, away, "Double Chance", sel, prob, pred, prob_source),
             "event_id": eid,
             "market_id": opt["market_id"],
             "outcome_id": opt["outcome_id"],
             "specifier": opt["specifier"],
+            "probability_source": prob_source,
         })
 
     # 3. Over / Under Goals
     for opt in parsed["goals_over_under"]:
         sel = opt["selection"]
         tot = opt.get("total", "2.5")
-        prob = 0.50
-        if pred:
-            ou_map = pred.get("totals", {}).get(f"over_under_{tot}", {})
-            prob = ou_map.get("over" if "Over" in sel else "under", 0.55)
-        else:
-            if "Over 1.5" in sel:
-                prob = 0.82
-            elif "Under 3.5" in sel:
-                prob = 0.78
-            elif "Over 0.5" in sel:
-                prob = 0.94
-            elif "Over 2.5" in sel:
-                prob = 0.55
-            elif "Under 2.5" in sel:
-                prob = 0.45
-            else:
-                prob = 0.50
+        ou_map = pred.get("totals", {}).get(f"over_under_{tot}", {})
+        model_key = "over" if "over" in sel.casefold() else "under"
+        estimate = get_probability(opt, ou_map.get(model_key))
+        if not estimate:
+            continue
+        prob, prob_source = estimate
 
         evaluated_picks.append({
             "market_type": "Match Goals",
@@ -222,18 +263,23 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
             "fair_odds": round(1.0 / max(prob, 0.01), 2),
             "available_odds": opt["odds"],
             "expected_value": round((prob * opt["odds"]) - 1.0, 4),
-            "confidence_tier": "Tier 1 – Bankers" if prob >= 0.70 else "Sharp Value",
-            "ai_rationale": generate_ai_rationale(home, away, "Match Goals", sel, prob, pred),
+            "confidence_tier": "Model estimate" if prob_source == "model" else "Market implied",
+            "ai_rationale": generate_ai_rationale(home, away, "Match Goals", sel, prob, pred, prob_source),
             "event_id": eid,
             "market_id": opt["market_id"],
             "outcome_id": opt["outcome_id"],
             "specifier": opt["specifier"],
+            "probability_source": prob_source,
         })
 
     # 4. GG / NG
     for opt in parsed["both_teams_to_score"]:
         sel = opt["selection"]
-        prob = pred.get("btts", {}).get("yes" if sel in ["Yes", "GG"] else "no", 0.55) if pred else 0.55
+        model_key = "yes" if sel.casefold() in {"yes", "gg"} else "no"
+        estimate = get_probability(opt, pred.get("btts", {}).get(model_key))
+        if not estimate:
+            continue
+        prob, prob_source = estimate
         evaluated_picks.append({
             "market_type": "GG / NG",
             "selection": f"Both Teams To Score ({sel})",
@@ -241,18 +287,22 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
             "fair_odds": round(1.0 / max(prob, 0.01), 2),
             "available_odds": opt["odds"],
             "expected_value": round((prob * opt["odds"]) - 1.0, 4),
-            "confidence_tier": "Tier 1 – Bankers" if prob >= 0.70 else "Sharp Value",
-            "ai_rationale": generate_ai_rationale(home, away, "GG / NG", sel, prob, pred),
+            "confidence_tier": "Model estimate" if prob_source == "model" else "Market implied",
+            "ai_rationale": generate_ai_rationale(home, away, "GG / NG", sel, prob, pred, prob_source),
             "event_id": eid,
             "market_id": opt["market_id"],
             "outcome_id": opt["outcome_id"],
             "specifier": opt["specifier"],
+            "probability_source": prob_source,
         })
 
     # 5. Corners
     for opt in parsed["corners"]:
         sel = opt["selection"]
-        prob = 0.76 if ("Over 8" in sel or "Over 7" in sel or "Under 12" in sel) else 0.58
+        estimate = get_probability(opt)
+        if not estimate:
+            continue
+        prob, prob_source = estimate
         evaluated_picks.append({
             "market_type": "Corners",
             "selection": sel,
@@ -260,18 +310,22 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
             "fair_odds": round(1.0 / max(prob, 0.01), 2),
             "available_odds": opt["odds"],
             "expected_value": round((prob * opt["odds"]) - 1.0, 4),
-            "confidence_tier": "Tier 1 – Bankers" if prob >= 0.70 else "Sharp Value",
-            "ai_rationale": generate_ai_rationale(home, away, "Corners", sel, prob, pred),
+            "confidence_tier": "Model estimate" if prob_source == "model" else "Market implied",
+            "ai_rationale": generate_ai_rationale(home, away, "Corners", sel, prob, pred, prob_source),
             "event_id": eid,
             "market_id": opt["market_id"],
             "outcome_id": opt["outcome_id"],
             "specifier": opt["specifier"],
+            "probability_source": prob_source,
         })
 
     # 6. Cards & Bookings
     for opt in parsed["cards"]:
         sel = opt["selection"]
-        prob = 0.72 if ("Over 2.5" in sel or "Under 5.5" in sel) else 0.55
+        estimate = get_probability(opt)
+        if not estimate:
+            continue
+        prob, prob_source = estimate
         evaluated_picks.append({
             "market_type": "Cards & Bookings",
             "selection": sel,
@@ -279,63 +333,36 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
             "fair_odds": round(1.0 / max(prob, 0.01), 2),
             "available_odds": opt["odds"],
             "expected_value": round((prob * opt["odds"]) - 1.0, 4),
-            "confidence_tier": "Tier 1 – Bankers" if prob >= 0.70 else "Sharp Value",
-            "ai_rationale": generate_ai_rationale(home, away, "Cards & Bookings", sel, prob, pred),
+            "confidence_tier": "Model estimate" if prob_source == "model" else "Market implied",
+            "ai_rationale": generate_ai_rationale(home, away, "Cards & Bookings", sel, prob, pred, prob_source),
             "event_id": eid,
             "market_id": opt["market_id"],
             "outcome_id": opt["outcome_id"],
             "specifier": opt["specifier"],
+            "probability_source": prob_source,
         })
 
-    # 7. Handicaps
-    for opt in parsed["handicap"][:8]:
-        sel = opt["selection"]
-        prob = 0.68 if ("+1.5" in sel or "+1" in sel or "+2" in sel) else 0.45
+    # Handicap prices are not derived from the goal model here. Include them
+    # only when the provider supplies a complete, normalizable market.
+    for opt in parsed["handicap"]:
+        estimate = get_probability(opt)
+        if not estimate:
+            continue
+        prob, prob_source = estimate
         evaluated_picks.append({
             "market_type": "Handicap",
-            "selection": sel,
+            "selection": opt["selection"],
             "model_probability": round(prob, 4),
             "fair_odds": round(1.0 / max(prob, 0.01), 2),
             "available_odds": opt["odds"],
             "expected_value": round((prob * opt["odds"]) - 1.0, 4),
-            "confidence_tier": "Tier 1 – Bankers" if prob >= 0.70 else "Sharp Value",
-            "ai_rationale": generate_ai_rationale(home, away, "Handicap", sel, prob, pred),
+            "confidence_tier": "Market implied",
+            "ai_rationale": generate_ai_rationale(home, away, "Handicap", opt["selection"], prob, pred, "market"),
             "event_id": eid,
             "market_id": opt["market_id"],
             "outcome_id": opt["outcome_id"],
             "specifier": opt["specifier"],
-        })
-
-    # Fallback calibrated Corners & Cards if not yet published on SportyBet feed
-    if not any(p["market_type"] == "Corners" for p in evaluated_picks):
-        evaluated_picks.append({
-            "market_type": "Corners",
-            "selection": "Over 8.5 Corners",
-            "model_probability": 0.74,
-            "fair_odds": 1.35,
-            "available_odds": 1.42,
-            "expected_value": 0.051,
-            "confidence_tier": "Tier 1 – Bankers",
-            "ai_rationale": f"Attacking wing width and high box entry volume project above 8.5 corners for {home} vs {away}.",
-            "event_id": eid,
-            "market_id": "166",
-            "outcome_id": "12",
-            "specifier": "total=8.5",
-        })
-    if not any(p["market_type"] == "Cards & Bookings" for p in evaluated_picks):
-        evaluated_picks.append({
-            "market_type": "Cards & Bookings",
-            "selection": "Over 3.5 Cards",
-            "model_probability": 0.70,
-            "fair_odds": 1.43,
-            "available_odds": 1.52,
-            "expected_value": 0.064,
-            "confidence_tier": "Tier 1 – Bankers",
-            "ai_rationale": f"Midfield transitional duel frequencies establish high certainty of exceeding 3.5 bookings.",
-            "event_id": eid,
-            "market_id": "139",
-            "outcome_id": "12",
-            "specifier": "total=3.5",
+            "probability_source": prob_source,
         })
 
     # Pick THE ONE SINGLE DEFINITIVE SUREST PREDICTION
@@ -373,7 +400,7 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
         "home_team": home,
         "away_team": away,
         "league": league_name,
-        "league_code": "SPORTY",
+        "league_code": sporty_league_code(league_name),
         "kickoff": kickoff_dt.isoformat(),
         "status": "scheduled",
         "ft_home_goals": None,
@@ -385,6 +412,8 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
             "odds": surest_pick["available_odds"],
             "fair_odds": surest_pick["fair_odds"],
             "ev": surest_pick["expected_value"],
+            "probability_source": surest_pick.get("probability_source", "model"),
+            "odds_source": surest_pick.get("odds_source", "bookmaker"),
             "confidence_tier": surest_pick["confidence_tier"],
             "rationale": surest_pick["ai_rationale"],
             "event_id": surest_pick.get("event_id"),
@@ -399,6 +428,7 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
             "odds": best_prop["available_odds"],
             "fair_odds": best_prop["fair_odds"],
             "ev": best_prop["expected_value"],
+            "probability_source": best_prop.get("probability_source", "model"),
             "confidence_tier": best_prop["confidence_tier"],
             "rationale": best_prop["ai_rationale"],
             "event_id": best_prop.get("event_id"),
@@ -413,6 +443,8 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
                 "prob": surest_pick["model_probability"],
                 "odds": surest_pick["available_odds"],
                 "fair_odds": surest_pick["fair_odds"],
+                "odds_source": surest_pick.get("odds_source", "bookmaker"),
+                "probability_source": surest_pick.get("probability_source", "model"),
                 "ev": surest_pick["expected_value"],
                 "confidence_tier": surest_pick["confidence_tier"],
                 "rationale": surest_pick["ai_rationale"],
@@ -423,7 +455,7 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
             }
         ] if surest_pick else [],
         "ai_analysis": surest_pick["ai_rationale"] if surest_pick else (
-            f"SportyBet real odds analyzed. Poisson projection estimates {exp_goals.get('total', 2.5)} combined goals."
+            "No available two-way market price or team-specific model estimate supports a forecast."
         ),
         "expected_goals": exp_goals,
         "markets": [
@@ -432,7 +464,9 @@ def _build_sporty_match_item(ev: dict[str, Any], dc: DixonColesModel | None) -> 
                 "selection": p["selection"],
                 "odds": p["available_odds"],
                 "probability": p["model_probability"],
+                "probability_source": p.get("probability_source", "model"),
                 "ev": p["expected_value"],
+                "rationale": p.get("ai_rationale"),
                 "confidence_tier": p["confidence_tier"],
                 "event_id": p.get("event_id"),
                 "market_id": p.get("market_id"),
@@ -453,8 +487,6 @@ async def list_match_predictions(
 ) -> list[dict[str, Any]]:
     """Returns matches structured for the frontend MatchList component, complete with AI surest picks and outlook."""
     dc = await _get_fitted_model(db)
-    if not dc:
-        return []
 
     match_items: list[dict[str, Any]] = []
 
@@ -462,12 +494,14 @@ async def list_match_predictions(
     if status_filter in [None, "scheduled"]:
         try:
             sporty_events = fetch_sporty_upcoming_events()
-            print(f"DEBUG: sporty_events count = {len(sporty_events)}")
-            for ev in sporty_events:
+            for ev in sporty_events[:limit]:
                 item = _build_sporty_match_item(ev, dc)
                 if item:
+                    if league_code and league_code not in {item["league_code"], item["league"]}:
+                        continue
+                    # This listing is read-only. The daily accumulator flow
+                    # persists its selected pre-match picks for result grading.
                     match_items.append(item)
-            print(f"DEBUG: match_items after sporty = {len(match_items)}")
         except Exception as e:
             print(f"Error merging sporty events: {e}")
 
@@ -483,13 +517,13 @@ async def list_match_predictions(
     )
 
     matches_to_analyze: list[Match] = []
-    now = datetime.now()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     if status_filter:
         if status_filter == "scheduled":
             stmt = base_query.where(Match.status == "scheduled", Match.kickoff >= now).order_by(asc(Match.kickoff)).limit(limit)
         else:
-            stmt = base_query.where((Match.status == "finished") | (Match.kickoff < now)).order_by(desc(Match.kickoff)).limit(limit)
+            stmt = base_query.where(Match.status == "finished").order_by(desc(Match.kickoff)).limit(limit)
         res = await db.execute(stmt)
         matches_to_analyze = list(res.scalars().all())
     else:
@@ -501,13 +535,17 @@ async def list_match_predictions(
         sched_res = await db.execute(sched_stmt)
         scheduled_matches = list(sched_res.scalars().all())
 
-        fin_stmt = base_query.where((Match.status == "finished") | (Match.kickoff < now)).order_by(desc(Match.kickoff)).limit(20)
+        fin_stmt = base_query.where(Match.status == "finished").order_by(desc(Match.kickoff)).limit(20)
         fin_res = await db.execute(fin_stmt)
         finished_matches = list(fin_res.scalars().all())
 
         matches_to_analyze = live_matches + scheduled_matches + finished_matches
 
-    match_items: list[dict[str, Any]] = []
+    if league_code:
+        matches_to_analyze = [
+            match for match in matches_to_analyze
+            if match.season and match.season.league and match.season.league.code == league_code
+        ]
 
     for m in matches_to_analyze:
         try:
@@ -523,8 +561,6 @@ async def list_match_predictions(
         p_btts = pred.get("btts", {})
         p_cs = pred.get("clean_sheets", {})
         p_hc = pred.get("handicaps", {})
-        p_corners = pred.get("corners", {})
-        p_cards = pred.get("cards", {})
 
         odds_by_sel: dict[str, float] = {}
         for o in m.odds:
@@ -575,15 +611,6 @@ async def list_match_predictions(
             ("Handicap", f"{m.home_team.name} (-1.5 Handicap)", p_hc.get("asian_handicap_home_-1.5", 0.0), "hc_home_minus1.5"),
             ("Handicap", f"{m.away_team.name} (-1.5 Handicap)", p_hc.get("asian_handicap_away_-1.5", 0.0), "hc_away_minus1.5"),
 
-            # Corners (SportyBet Special)
-            ("Corners", "Over 7.5 Corners", p_corners.get("corners_over_under_7.5", {}).get("over", 0.0), "corners_7.5_over"),
-            ("Corners", "Over 8.5 Corners", p_corners.get("corners_over_under_8.5", {}).get("over", 0.0), "corners_8.5_over"),
-            ("Corners", "Under 11.5 Corners", p_corners.get("corners_over_under_10.5", {}).get("under", 0.0), "corners_10.5_under"),
-
-            # Cards & Bookings (SportyBet Special)
-            ("Cards & Bookings", "Over 2.5 Cards", p_cards.get("cards_over_under_2.5", {}).get("over", 0.0), "cards_2.5_over"),
-            ("Cards & Bookings", "Over 3.5 Cards", p_cards.get("cards_over_under_3.5", {}).get("over", 0.0), "cards_3.5_over"),
-            ("Cards & Bookings", "Under 5.5 Cards", p_cards.get("cards_over_under_4.5", {}).get("under", 0.0), "cards_4.5_under"),
         ]
 
         evaluated_picks: list[dict[str, Any]] = []
@@ -593,9 +620,9 @@ async def list_match_predictions(
 
             raw_odds = odds_by_sel.get(odds_key)
             fair_odds = MarketEngine.calculate_fair_odds(prob)
-            available_odds = raw_odds if (raw_odds and raw_odds > 1.0) else round(fair_odds * 0.94, 2)
-            ev = MarketEngine.calculate_expected_value(prob, available_odds)
-            conf = classifier.evaluate(prob, available_odds, quality_score=1.0)
+            available_odds = raw_odds if (raw_odds and raw_odds > 1.0) else fair_odds
+            ev = MarketEngine.calculate_expected_value(prob, raw_odds) if raw_odds and raw_odds > 1.0 else None
+            conf = classifier.evaluate(prob, raw_odds, quality_score=1.0) if raw_odds and raw_odds > 1.0 else None
 
             evaluated_picks.append({
                 "market_type": m_type,
@@ -604,8 +631,9 @@ async def list_match_predictions(
                 "fair_odds": fair_odds,
                 "available_odds": available_odds,
                 "expected_value": ev,
-                "confidence_tier": conf.tier or ("Tier 1 – Bankers" if prob >= 0.70 else "Sharp Value"),
-                "is_value": ev >= 0.0,
+                "odds_source": "bookmaker" if raw_odds and raw_odds > 1.0 else "model_fair",
+                "confidence_tier": conf.tier if conf else "Model forecast ? odds unavailable",
+                "is_value": ev is not None and ev >= 0.0,
                 "ai_rationale": generate_ai_rationale(m.home_team.name, m.away_team.name, m_type, sel, prob, pred),
             })
 
@@ -655,6 +683,7 @@ async def list_match_predictions(
                 "prob": surest_pick["model_probability"],
                 "odds": surest_pick["available_odds"],
                 "fair_odds": surest_pick["fair_odds"],
+                "odds_source": surest_pick.get("odds_source", "bookmaker"),
                 "ev": surest_pick["expected_value"],
                 "confidence_tier": surest_pick["confidence_tier"],
                 "rationale": surest_pick["ai_rationale"],
@@ -669,6 +698,8 @@ async def list_match_predictions(
                 "prob": best_prop["model_probability"],
                 "odds": best_prop["available_odds"],
                 "fair_odds": best_prop["fair_odds"],
+                "odds_source": best_prop.get("odds_source", "bookmaker"),
+                "probability_source": best_prop.get("probability_source", "model"),
                 "ev": best_prop["expected_value"],
                 "confidence_tier": best_prop["confidence_tier"],
                 "rationale": best_prop["ai_rationale"],
@@ -683,6 +714,7 @@ async def list_match_predictions(
                     "selection": surest_pick["selection"],
                     "prob": surest_pick["model_probability"],
                     "odds": surest_pick["available_odds"],
+                    "odds_source": surest_pick.get("odds_source", "bookmaker"),
                     "fair_odds": surest_pick["fair_odds"],
                     "ev": surest_pick["expected_value"],
                     "confidence_tier": surest_pick["confidence_tier"],
@@ -714,7 +746,19 @@ async def list_match_predictions(
             ],
         })
 
-    return match_items
+    # The live feed is the source of current fixtures; merge local fixtures while
+    # avoiding duplicates and return one chronological list across both sources.
+    seen: set[tuple[str, str, str]] = set()
+    unique_items: list[dict[str, Any]] = []
+    for item in match_items:
+        kickoff = datetime.fromisoformat(item["kickoff"].replace("Z", "+00:00"))
+        day = kickoff.astimezone(timezone.utc).date().isoformat() if kickoff.tzinfo else kickoff.date().isoformat()
+        key = (item["home_team"].casefold().strip(), item["away_team"].casefold().strip(), day)
+        if key not in seen:
+            seen.add(key)
+            unique_items.append(item)
+    unique_items.sort(key=lambda item: datetime.fromisoformat(item["kickoff"].replace("Z", "+00:00")).timestamp())
+    return unique_items[:limit]
 
 
 @router.get("")
@@ -741,7 +785,7 @@ async def list_predictions(
         )
     )
 
-    now = datetime.now()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     if match_id:
         target_stmt = target_stmt.where(Match.id == match_id)
@@ -749,23 +793,37 @@ async def list_predictions(
         if status_filter == "scheduled":
             target_stmt = target_stmt.where(Match.status == "scheduled", Match.kickoff >= now).order_by(asc(Match.kickoff))
         else:
-            target_stmt = target_stmt.where((Match.status == "finished") | (Match.kickoff < now)).order_by(desc(Match.kickoff))
+            target_stmt = target_stmt.where(Match.status == "finished").order_by(desc(Match.kickoff))
     else:
-        sched_check = await db.scalar(
-            select(Match.id).where(Match.status == "scheduled", Match.kickoff >= now).limit(1)
-        )
-        if sched_check:
-            target_stmt = target_stmt.where(Match.status == "scheduled", Match.kickoff >= now).order_by(asc(Match.kickoff))
-        else:
-            target_stmt = target_stmt.order_by(desc(Match.kickoff))
+        target_stmt = target_stmt.where(Match.status == "scheduled", Match.kickoff >= now).order_by(asc(Match.kickoff))
 
     target_stmt = target_stmt.limit(limit)
     res = await db.execute(target_stmt)
     matches_to_predict = res.scalars().all()
 
+    model_version = await db.scalar(
+        select(ModelVersion).where(ModelVersion.model_name == "Dixon-Coles", ModelVersion.version == "live-1")
+    )
+    if not model_version:
+        model_version = ModelVersion(
+            model_name="Dixon-Coles",
+            version="live-1",
+            status="experimental",
+            hyperparameters={"xi": dc.xi, "max_goals": dc.max_goals},
+            training_samples=getattr(dc, "training_sample_count", None),
+            trained_at=datetime.now(timezone.utc),
+        )
+        db.add(model_version)
+        await db.flush()
+    else:
+        model_version.trained_at = datetime.now(timezone.utc)
+        model_version.training_samples = getattr(dc, "training_sample_count", None)
+
     results: list[dict[str, Any]] = []
 
     for m in matches_to_predict:
+        if m.home_team.name not in dc.team_idx or m.away_team.name not in dc.team_idx:
+            continue
         try:
             pred = dc.predict_match(m.home_team.name, m.away_team.name)
         except Exception:
@@ -801,8 +859,6 @@ async def list_predictions(
             ("Match Goals", "Under 2.5 Goals", p_totals.get("over_under_2.5", {}).get("under", 0.0), "over_under_2.5_under"),
             ("Team Goals", f"{m.home_team.name} Over 0.5 Goals", p_team_totals.get("home_over_under_0.5", {}).get("over", 0.0), "home_ou_0.5_over"),
             ("Team Goals", f"{m.away_team.name} Over 0.5 Goals", p_team_totals.get("away_over_under_0.5", {}).get("over", 0.0), "away_ou_0.5_over"),
-            ("Corners", "Over 8.5 Corners", p_corners.get("corners_over_under_8.5", {}).get("over", 0.0), "corners_8.5_over"),
-            ("Cards & Bookings", "Over 3.5 Cards", p_cards.get("cards_over_under_3.5", {}).get("over", 0.0), "cards_3.5_over"),
         ]
 
         evaluated_picks: list[dict[str, Any]] = []
@@ -813,10 +869,36 @@ async def list_predictions(
 
             raw_odds = odds_by_sel.get(odds_key)
             fair_odds = MarketEngine.calculate_fair_odds(prob)
-            available_odds = raw_odds if (raw_odds and raw_odds > 1.0) else round(fair_odds * 0.94, 2)
+            available_odds = raw_odds if (raw_odds and raw_odds > 1.0) else None
 
-            ev = MarketEngine.calculate_expected_value(prob, available_odds)
-            conf = classifier.evaluate(prob, available_odds, quality_score=1.0)
+            ev = MarketEngine.calculate_expected_value(prob, available_odds) if available_odds else None
+            conf = classifier.evaluate(prob, available_odds, quality_score=1.0) if available_odds else None
+
+            saved_prediction = await db.scalar(
+                select(Prediction).where(
+                    Prediction.match_id == m.id,
+                    Prediction.model_version_id == model_version.id,
+                    Prediction.market_type == m_type,
+                    Prediction.selection == sel,
+                    Prediction.settled.is_(False),
+                )
+            )
+            if saved_prediction is None:
+                db.add(Prediction(
+                    match_id=m.id,
+                    model_version_id=model_version.id,
+                    market_type=m_type,
+                    selection=sel,
+                    probability=prob,
+                    fair_odds=fair_odds,
+                    available_odds=available_odds,
+                    expected_value=ev,
+                    confidence_tier=conf.tier if conf else "Model Forecast",
+                    model_output={"expected_goals": pred.get("expected_goals")},
+                    outcome="pending",
+                    settled=False,
+                ))
+            # Keep the first pre-match forecast immutable for honest result analysis.
 
             evaluated_picks.append({
                 "match_id": m.id,
@@ -832,8 +914,9 @@ async def list_predictions(
                 "fair_odds": fair_odds,
                 "available_odds": available_odds,
                 "expected_value": ev,
-                "confidence_tier": conf.tier or ("Tier 1 – Bankers" if prob >= 0.70 else "Sharp Value"),
-                "is_value": ev >= 0.0,
+                "confidence_tier": conf.tier if conf else "Model forecast ? odds unavailable",
+                "odds_source": "bookmaker" if available_odds else "unavailable",
+                "is_value": ev is not None and ev >= 0.0,
                 "ai_rationale": generate_ai_rationale(m.home_team.name, m.away_team.name, m_type, sel, prob, pred),
                 "expected_goals": pred.get("expected_goals"),
             })

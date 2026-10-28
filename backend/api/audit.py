@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 from typing import Any
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.services.audit_service import build_audit_report
+from backend.db.engine import get_db
+from backend.services.prediction_audit import build_prediction_audit
 
 router = APIRouter(prefix="/audit", tags=["Audit & Post-Match Review"])
 
 
 @router.get("/recent")
 async def get_recent_audit(
-    date: str = Query("2026-10-25", description="Audit date string YYYY-MM-DD")
+    date: str | None = Query(None, description="Audit date string YYYY-MM-DD"),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Returns the comprehensive recent picks audit grading recent Domestic & UEFA completed fixtures."""
-    return build_audit_report(date)
+    """Grades saved predictions against completed match scores."""
+    result = await build_prediction_audit(db, date)
+    return result
