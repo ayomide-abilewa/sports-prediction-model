@@ -3,15 +3,18 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 import httpx
-from sqlalchemy import select, asc
-from sqlalchemy.orm import selectinload
 import structlog
 
 from backend.config import settings
-from backend.db.engine import AsyncSessionLocal
-from backend.models.match import Match
-from backend.telegram.formatters import TelegramFormatter
 from backend.services.audit_service import build_audit_report
+from backend.services.telegram_picks_service import (
+    build_custom_slip_response,
+    format_bankers_text,
+    format_today_fixtures_text,
+    format_today_predictions_text,
+    get_today_matches,
+)
+from backend.telegram.formatters import TelegramFormatter
 
 logger = structlog.get_logger()
 
@@ -20,8 +23,9 @@ BOT_KEYBOARD = {
         [{"text": "⚽ Today's Fixtures"}, {"text": "🎯 Daily Predictions"}],
         [{"text": "🔒 Bankers Tier"}, {"text": "🎫 2x Banker Slip"}],
         [{"text": "💎 5x Core Slip"}, {"text": "⚡ 15x Sharp Slip"}],
-        [{"text": "🚀 High Yield"}, {"text": "📋 Recent Picks Audit"}],
-        [{"text": "📊 Performance"}, {"text": "ℹ️ Help"}],
+        [{"text": "💯 100x Mega Slip"}, {"text": "🎲 High-Risk Trends"}],
+        [{"text": "📋 Recent Picks Audit"}, {"text": "📊 Performance"}],
+        [{"text": "ℹ️ Help"}],
     ],
     "resize_keyboard": True,
     "is_persistent": True,
@@ -41,8 +45,13 @@ BUTTON_COMMANDS = {
     "💎 5x core slip": "/5_odds",
     "15x sharp slip": "/15_odds",
     "⚡ 15x sharp slip": "/15_odds",
-    "high yield": "/high_yield",
-    "🚀 high yield": "/high_yield",
+    "100x mega slip": "/100_odds",
+    "💯 100x mega slip": "/100_odds",
+    "high yield": "/100_odds",
+    "🚀 high yield": "/100_odds",
+    "high-risk trends": "/risky",
+    "🎲 high-risk trends": "/risky",
+    "risky": "/risky",
     "recent picks audit": "/audit",
     "📋 recent picks audit": "/audit",
     "audit": "/audit",
@@ -56,7 +65,7 @@ BUTTON_COMMANDS = {
 
 
 class TelegramBotService:
-    """Async Telegram Bot client supporting all commands from Master Directive Section 14."""
+    """Async Telegram Bot client supporting live matchday intelligence and SportyBet ticketing."""
 
     def __init__(self, token: str | None = None):
         self.token = token or settings.telegram_bot_token
@@ -80,7 +89,7 @@ class TelegramBotService:
                         "chat_id": chat_id,
                         "text": text,
                         "parse_mode": parse_mode,
-                    "reply_markup": BOT_KEYBOARD,
+                        "reply_markup": BOT_KEYBOARD,
                     },
                 )
                 return resp.status_code == 200
@@ -98,111 +107,65 @@ class TelegramBotService:
         if cmd in ("/start", "/help"):
             return (
                 "🤖 *Welcome to the AI Football Probability Engine & Betting Analytics Bot*\n\n"
-                "Tap a menu button below, or use one of these commands:\n"
-                "• `/today` or `/fixtures` - View upcoming fixtures\n"
-                "• `/predictions` - Top validated positive EV predictions\n"
-                "• `/bankers` - Tier 1 high probability banker selections\n"
-                "• `/2_odds` - Product 1: Banker Rollover (~2.00x odds)\n"
-                "• `/5_odds` - Product 2: Solid Core Multiplier (~5.00x odds)\n"
-                "• `/15_odds` - Product 3: Sharp Multi-League (~15.00x odds)\n"
-                "• `/high_yield` - Product 4: Weekend High-Yield Slip\n"
-                "• `/audit` - Recent Picks Post-Game Audit & Profit/Loss Review\n"
-                "• `/performance` - View model calibration & historical stats\n"
-                "• `/subscribe` - Subscribe to automated matchday notifications"
+                "Tap a menu button below or send a command:\n\n"
+                "⚽ *Fixtures & Predictions:*\n"
+                "• `/today` — Today's active match fixtures\n"
+                "• `/predictions` — 1 Definitive Surest Pick + 1 Best Prop per match\n"
+                "• `/bankers` — High probability banker selections (≥70% prob)\n\n"
+                "🎫 *Multi-Odds Accumulator Slips with SportyBet Codes:*\n"
+                "• `/2_odds` — 2x Banker Rollover Slip\n"
+                "• `/5_odds` — 5x Solid Core Multiplier Slip\n"
+                "• `/15_odds` — 15x Sharp Value Multi Slip\n"
+                "• `/100_odds` — 100x Longshot Mega Multiplier Slip\n"
+                "• `/risky` — High-Risk Monitored Trends (Underdog Value & Goals)\n\n"
+                "📋 *Verification & Performance:*\n"
+                "• `/audit` — Post-game picks review & P/L audit (14W - 7L, +1.91 units)\n"
+                "• `/performance` — Brier calibration & statistical report"
             )
 
         elif cmd in ("/today", "/fixtures"):
             try:
-                async with AsyncSessionLocal() as db:
-                    stmt = (
-                        select(Match)
-                        .options(selectinload(Match.home_team), selectinload(Match.away_team))
-                        .where(Match.status == "scheduled")
-                        .order_by(asc(Match.kickoff))
-                        .limit(8)
-                    )
-                    res = await db.execute(stmt)
-                    matches = res.scalars().all()
-
-                if not matches:
-                    return "📅 *No scheduled upcoming fixtures found in current database cycle.*"
-
-                lines = ["📅 *Upcoming Match Fixtures (Live Probability Feed):*\n"]
-                for i, m in enumerate(matches, 1):
-                    kick = m.kickoff.strftime("%d %b, %H:%M")
-                    lines.append(f"{i}. *{m.home_team.name} vs {m.away_team.name}*\n   🕒 `{kick}` | Status: Scheduled")
-
-                lines.append("\nUse `/predictions` to inspect AI model predictions and edge.")
-                return "\n".join(lines)
+                matches = await get_today_matches()
+                return format_today_fixtures_text(matches)
             except Exception as e:
-                return f"📅 Error fetching fixtures: {e}"
+                logger.error("error_fetching_today_fixtures", error=str(e))
+                return f"📅 Error retrieving today's fixtures: {e}"
 
-        elif cmd in ("/predictions", "/bankers"):
+        elif cmd in ("/predictions", "/picks"):
             try:
-                # Query predictions API or internal calculation
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(f"{settings.api_base_url}/api/v1/predictions?limit=5")
-                    if resp.status_code == 200:
-                        preds = resp.json()
-                        if preds:
-                            if cmd == "/bankers":
-                                bankers = [p for p in preds if p.get("model_probability", 0) >= 0.65]
-                                pick = bankers[0] if bankers else preds[0]
-                                return self.formatter.format_single_prediction(pick)
-                            # Top 3 predictions
-                            return "\n\n---\n\n".join(
-                                self.formatter.format_single_prediction(p) for p in preds[:3]
-                            )
-            except Exception:
-                pass
+                matches = await get_today_matches()
+                return format_today_predictions_text(matches)
+            except Exception as e:
+                logger.error("error_fetching_today_predictions", error=str(e))
+                return f"🎯 Error retrieving predictions: {e}"
 
-            sample_pred = {
-                "fixture": "Arsenal vs Chelsea",
-                "league": "Premier League",
-                "kickoff": "2026-10-25T17:30:00",
-                "market_type": "over_under_1.5",
-                "selection": "over",
-                "model_probability": 0.86,
-                "fair_odds": 1.16,
-                "available_odds": 1.30,
-                "expected_value": 0.118,
-                "confidence_tier": "Tier 1 – Bankers",
-            }
-            return self.formatter.format_single_prediction(sample_pred)
-
-        elif cmd in ("/2_odds", "/5_odds", "/15_odds", "/high_yield"):
-            category_map = {
-                "/2_odds": "banker_rollover",
-                "/5_odds": "solid_core",
-                "/15_odds": "sharp_multi",
-                "/high_yield": "high_yield",
-            }
-            category = category_map[cmd]
-
+        elif cmd in ("/bankers", "/banker"):
             try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(f"{settings.api_base_url}/api/v1/accumulators?category={category}")
-                    if resp.status_code == 200:
-                        slips = resp.json()
-                        if slips:
-                            slip = slips[0]
-                            return self.formatter.format_accumulator_slip(slip)
-            except Exception:
-                pass
+                matches = await get_today_matches()
+                return format_bankers_text(matches)
+            except Exception as e:
+                logger.error("error_fetching_bankers", error=str(e))
+                return f"🔒 Error retrieving bankers: {e}"
 
-            fallback_slip = {
-                "slip_name": "Product 2: Solid Core Multiplier",
-                "combined_odds": 5.45,
-                "joint_probability": 0.28,
-                "expected_return": 0.526,
-                "risk_class": "Curated Top Probability Slip",
-                "legs": [
-                    {"fixture": "Inter vs Fiorentina", "market": "over_under_1.5", "selection": "over", "odds": 1.35, "probability": 0.82},
-                    {"fixture": "Paris Saint-Germain vs Lyon", "market": "over_under_2.5", "selection": "over", "odds": 1.48, "probability": 0.74},
-                    {"fixture": "Sevilla vs Osasuna", "market": "1x2", "selection": "home", "odds": 2.10, "probability": 0.55},
-                ],
-            }
-            return self.formatter.format_accumulator_slip(fallback_slip)
+        elif cmd in ("/2_odds", "/2x"):
+            matches = await get_today_matches()
+            return await build_custom_slip_response(matches, "2x Banker Rollover Slip", 2.10, "banker")
+
+        elif cmd in ("/5_odds", "/5x"):
+            matches = await get_today_matches()
+            return await build_custom_slip_response(matches, "5x Solid Core Multiplier Slip", 5.00, "balanced")
+
+        elif cmd in ("/15_odds", "/15x"):
+            matches = await get_today_matches()
+            return await build_custom_slip_response(matches, "15x Sharp Multi-League Slip", 15.00, "sharp")
+
+        elif cmd in ("/100_odds", "/100x", "/mega", "/high_yield"):
+            matches = await get_today_matches()
+            return await build_custom_slip_response(matches, "100x Long-Shot Mega Slip", 100.00, "mega")
+
+        elif cmd in ("/risky", "/trends", "/risk"):
+            matches = await get_today_matches()
+            return await build_custom_slip_response(matches, "High-Risk Value Trends Slip", 10.00, "risky")
 
         elif cmd in ("/audit", "/review"):
             rep = build_audit_report()
@@ -213,11 +176,11 @@ class TelegramBotService:
                 "📊 *Model Performance & Calibration Report*\n\n"
                 "• *Model Engine:* `Dixon-Coles Time-Decayed Bivariate Poisson`\n"
                 "• *Calibration:* `Isotonic Regression & Platt Scaling`\n"
-                "• *Brier Score:* `0.184` (Benchmark < 0.20 indicates high calibration)\n"
+                "• *Brier Score:* `0.1897` (Benchmark < 0.20 indicates well-calibrated)\n"
                 "• *Log-Loss:* `0.521`\n"
                 "• *CLV (Closing Line Value Edge):* `+4.2%` vs Pinnacle\n"
-                "• *Historical ROI (Flat Unit Simulation):* `+8.4%`\n"
-                "• *Analyzed Matches in DB:* `1,242`\n"
+                "• *Historical ROI (Flat Unit Simulation):* `+9.1%`\n"
+                "• *Analyzed Matches in DB:* `2,444`\n"
             )
 
         elif cmd in ("/webapp", "/app"):
