@@ -8,11 +8,13 @@ import structlog
 from backend.config import settings
 from backend.services.audit_service import build_audit_report
 from backend.services.telegram_picks_service import (
-    build_custom_slip_response,
+    auto_generate_slip,
     format_bankers_text,
-    format_today_fixtures_text,
-    format_today_predictions_text,
+    format_paginated_fixtures,
+    format_paginated_predictions,
     get_today_matches,
+    handle_builder_choice,
+    start_builder_session,
 )
 from backend.telegram.formatters import TelegramFormatter
 
@@ -65,7 +67,7 @@ BUTTON_COMMANDS = {
 
 
 class TelegramBotService:
-    """Async Telegram Bot client supporting live matchday intelligence and SportyBet ticketing."""
+    """Async Telegram Bot client supporting live matchday intelligence, interactive betslip builder, and SportyBet ticketing."""
 
     def __init__(self, token: str | None = None):
         self.token = token or settings.telegram_bot_token
@@ -74,12 +76,18 @@ class TelegramBotService:
         self.is_active = bool(self.token)
 
     async def send_message(
-        self, chat_id: int | str, text: str, parse_mode: str = "Markdown"
+        self,
+        chat_id: int | str,
+        text: str,
+        reply_markup: dict[str, Any] | None = None,
+        parse_mode: str = "Markdown",
     ) -> bool:
-        """Sends a message to a specific Telegram chat or channel."""
+        """Sends a message to a Telegram chat with custom keyboard or inline buttons."""
         if not self.is_active:
             logger.info("telegram_token_not_configured_stub", chat_id=chat_id, preview=text[:60])
             return True
+
+        markup = reply_markup if reply_markup is not None else BOT_KEYBOARD
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -89,7 +97,7 @@ class TelegramBotService:
                         "chat_id": chat_id,
                         "text": text,
                         "parse_mode": parse_mode,
-                        "reply_markup": BOT_KEYBOARD,
+                        "reply_markup": markup,
                     },
                 )
                 return resp.status_code == 200
@@ -97,82 +105,92 @@ class TelegramBotService:
             logger.error("telegram_send_error", error=str(exc))
             return False
 
-    async def handle_command(self, chat_id: int | str, command: str, args: list[str] | None = None) -> str:
-        """Processes Telegram bot commands with live quantitative data."""
+    async def handle_command(
+        self, chat_id: int | str, command: str, args: list[str] | None = None
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Processes Telegram bot commands, returning response text and optional inline markup."""
         cmd = command.strip().lower()
         cmd = BUTTON_COMMANDS.get(cmd, cmd)
         if not cmd.startswith("/"):
             cmd = f"/{cmd}"
 
         if cmd in ("/start", "/help"):
-            return (
+            text = (
                 "🤖 *Welcome to the AI Football Probability Engine & Betting Analytics Bot*\n\n"
                 "Tap a menu button below or send a command:\n\n"
-                "⚽ *Fixtures & Predictions:*\n"
-                "• `/today` — Today's active match fixtures\n"
-                "• `/predictions` — 1 Definitive Surest Pick + 1 Best Prop per match\n"
-                "• `/bankers` — High probability banker selections (≥70% prob)\n\n"
-                "🎫 *Multi-Odds Accumulator Slips with SportyBet Codes:*\n"
-                "• `/2_odds` — 2x Banker Rollover Slip\n"
-                "• `/5_odds` — 5x Solid Core Multiplier Slip\n"
-                "• `/15_odds` — 15x Sharp Value Multi Slip\n"
-                "• `/100_odds` — 100x Longshot Mega Multiplier Slip\n"
-                "• `/risky` — High-Risk Monitored Trends (Underdog Value & Goals)\n\n"
-                "📋 *Verification & Performance:*\n"
+                "⚽ *Today's Football & Predictions:*\n"
+                "• `/today` — Today's active fixtures (Big clubs & top leagues first)\n"
+                "• `/predictions` — 1 Surest Pick + 1 Best Prop per match (Decent odds ≥ 1.25)\n"
+                "• `/bankers` — High probability banker selections (≥65% prob)\n\n"
+                "🎫 *Interactive Accumulator Builder (SportyBet Codes):*\n"
+                "• `/2_odds` — 2x Banker Slip Builder (Pick Main or Prop step-by-step)\n"
+                "• `/5_odds` — 5x Solid Core Slip Builder\n"
+                "• `/15_odds` — 15x Sharp Value Multi Builder\n"
+                "• `/100_odds` — 100x Longshot Mega Multiplier Builder\n"
+                "• `/risky` — Monitored High-Risk Trends (Underdog Value & Shootouts)\n\n"
+                "📋 *Verification & Calibration:*\n"
                 "• `/audit` — Post-game picks review & P/L audit (14W - 7L, +1.91 units)\n"
                 "• `/performance` — Brier calibration & statistical report"
             )
+            return text, None
 
         elif cmd in ("/today", "/fixtures"):
             try:
                 matches = await get_today_matches()
-                return format_today_fixtures_text(matches)
+                text, markup = format_paginated_fixtures(matches, page=0)
+                return text, markup
             except Exception as e:
                 logger.error("error_fetching_today_fixtures", error=str(e))
-                return f"📅 Error retrieving today's fixtures: {e}"
+                return f"📅 Error retrieving today's fixtures: {e}", None
 
         elif cmd in ("/predictions", "/picks"):
             try:
                 matches = await get_today_matches()
-                return format_today_predictions_text(matches)
+                text, markup = format_paginated_predictions(matches, page=0)
+                return text, markup
             except Exception as e:
                 logger.error("error_fetching_today_predictions", error=str(e))
-                return f"🎯 Error retrieving predictions: {e}"
+                return f"🎯 Error retrieving predictions: {e}", None
 
         elif cmd in ("/bankers", "/banker"):
             try:
                 matches = await get_today_matches()
-                return format_bankers_text(matches)
+                return format_bankers_text(matches), None
             except Exception as e:
                 logger.error("error_fetching_bankers", error=str(e))
-                return f"🔒 Error retrieving bankers: {e}"
+                return f"🔒 Error retrieving bankers: {e}", None
 
         elif cmd in ("/2_odds", "/2x"):
             matches = await get_today_matches()
-            return await build_custom_slip_response(matches, "2x Banker Rollover Slip", 2.10, "banker")
+            text, markup = start_builder_session(chat_id, 2.10, "2x Banker Slip", matches)
+            return text, markup
 
         elif cmd in ("/5_odds", "/5x"):
             matches = await get_today_matches()
-            return await build_custom_slip_response(matches, "5x Solid Core Multiplier Slip", 5.00, "balanced")
+            text, markup = start_builder_session(chat_id, 5.00, "5x Solid Core Slip", matches)
+            return text, markup
 
         elif cmd in ("/15_odds", "/15x"):
             matches = await get_today_matches()
-            return await build_custom_slip_response(matches, "15x Sharp Multi-League Slip", 15.00, "sharp")
+            text, markup = start_builder_session(chat_id, 15.00, "15x Sharp Value Slip", matches)
+            return text, markup
 
         elif cmd in ("/100_odds", "/100x", "/mega", "/high_yield"):
             matches = await get_today_matches()
-            return await build_custom_slip_response(matches, "100x Long-Shot Mega Slip", 100.00, "mega")
+            text, markup = start_builder_session(chat_id, 100.00, "100x Longshot Mega Slip", matches)
+            return text, markup
 
         elif cmd in ("/risky", "/trends", "/risk"):
             matches = await get_today_matches()
-            return await build_custom_slip_response(matches, "High-Risk Value Trends Slip", 10.00, "risky")
+            text, markup = await auto_generate_slip(matches, "High-Risk Value Trends Slip", 10.00, "risky")
+            return text, markup
 
         elif cmd in ("/audit", "/review"):
             rep = build_audit_report()
-            return rep["formatted_text"]
+            return rep["formatted_text"], None
 
         elif cmd == "/performance":
-            return (
+            text = (
                 "📊 *Model Performance & Calibration Report*\n\n"
                 "• *Model Engine:* `Dixon-Coles Time-Decayed Bivariate Poisson`\n"
                 "• *Calibration:* `Isotonic Regression & Platt Scaling`\n"
@@ -182,23 +200,73 @@ class TelegramBotService:
                 "• *Historical ROI (Flat Unit Simulation):* `+9.1%`\n"
                 "• *Analyzed Matches in DB:* `2,444`\n"
             )
+            return text, None
 
         elif cmd in ("/webapp", "/app"):
             webapp_url = settings.webapp_url or "http://localhost:3000"
-            return (
+            text = (
                 f"📱 *AI Football Prediction Engine Web Terminal*\n\n"
                 f"You can launch the full web interface directly:\n"
                 f"👉 [{webapp_url}]({webapp_url})\n\n"
                 f"Includes interactive betslip builder, SportyBet booking code generator, and live in-play momentum tracker."
             )
+            return text, None
 
         elif cmd == "/subscribe":
-            return "✅ *Subscribed!* You will receive morning matchday analysis and automated booking codes whenever value slips are generated."
+            return "✅ *Subscribed!* You will receive morning matchday analysis and automated booking codes whenever value slips are generated.", None
 
         elif cmd == "/unsubscribe":
-            return "👋 *Unsubscribed.* You will no longer receive automated slip broadcasts."
+            return "👋 *Unsubscribed.* You will no longer receive automated slip broadcasts.", None
 
-        return "❓ *Unknown command.* Send `/help` to view all available commands."
+        return "❓ *Unknown command.* Send `/help` to view all available commands.", None
+
+    async def handle_callback(
+        self, chat_id: int | str, data: str
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Handles inline button clicks (pagination, slip builder selections, etc.)."""
+        if not data or data == "noop":
+            return "", None
+
+        matches = await get_today_matches()
+
+        # Fixtures pagination
+        if data.startswith("fix_page:"):
+            page = int(data.split(":")[1])
+            return format_paginated_fixtures(matches, page=page)
+
+        # Predictions pagination
+        if data.startswith("pred_page:"):
+            page = int(data.split(":")[1])
+            return format_paginated_predictions(matches, page=page)
+
+        # Start Builder via button
+        if data.startswith("build_start:"):
+            target_str = data.split(":")[1]
+            target_map = {
+                "2": (2.10, "2x Banker Slip"),
+                "5": (5.00, "5x Solid Core Slip"),
+                "15": (15.00, "15x Sharp Value Slip"),
+                "100": (100.00, "100x Longshot Mega Slip"),
+            }
+            target, name = target_map.get(target_str, (2.10, "2x Banker Slip"))
+            return start_builder_session(chat_id, target, name, matches)
+
+        # Builder choices
+        if data.startswith("bld_pick:"):
+            _, choice, match_idx = data.split(":")
+            return await handle_builder_choice(chat_id, choice, match_idx)
+
+        if data.startswith("bld_skip:"):
+            _, match_idx = data.split(":")
+            return await handle_builder_choice(chat_id, "skip", match_idx)
+
+        if data == "bld_autofinish":
+            return await handle_builder_choice(chat_id, "autofinish")
+
+        if data == "bld_finish_now":
+            return await handle_builder_choice(chat_id, "finish_now")
+
+        return "", None
 
 
 telegram_bot = TelegramBotService()

@@ -40,7 +40,6 @@ except ImportError:
         def print(self, msg, *args, **kwargs):
             if hasattr(msg, "renderable"):
                 msg = str(msg.renderable)
-            # Strip simple rich markup tags like [bold green]...[/bold green]
             clean = re.sub(r"\[/?(?:bold|dim|green|yellow|red|cyan|magenta|blue|white)[^\]]*\]", "", str(msg))
             print(clean)
     class DummyPanel:
@@ -81,7 +80,9 @@ async def run_bot_polling(token: str):
                     f"  • [bold yellow]/start[/bold yellow] (opens the interactive menu)\n"
                     f"  • [bold yellow]/today[/bold yellow] or tap [bold]Today's fixtures[/bold]\n"
                     f"  • [bold yellow]/predictions[/bold yellow] (Surest Pick & Best Prop)\n"
-                    f"  • [bold yellow]/2_odds[/bold yellow] (Banker Slip with SportyBet Code)\n"
+                    f"  • [bold yellow]/2_odds[/bold yellow] (Interactive 2x Banker Builder)\n"
+                    f"  • [bold yellow]/5_odds[/bold yellow] (Interactive 5x Core Builder)\n"
+                    f"  • [bold yellow]/100_odds[/bold yellow] (Interactive 100x Mega Builder)\n"
                     f"  • [bold yellow]/audit[/bold yellow] (Recent Picks Post-Game Review)\n\n"
                     f"[dim]Press Ctrl+C to stop the bot.[/dim]",
                     title="Telegram Bot Live Poller",
@@ -107,6 +108,31 @@ async def run_bot_polling(token: str):
                 updates = resp.json().get("result", [])
                 for update in updates:
                     offset = update["update_id"] + 1
+
+                    # 1. Handle Inline Button Clicks (Callback Queries)
+                    callback_query = update.get("callback_query")
+                    if callback_query:
+                        cq_id = callback_query.get("id")
+                        cq_data = callback_query.get("data", "")
+                        cq_msg = callback_query.get("message", {})
+                        cq_chat = cq_msg.get("chat", {})
+                        cq_chat_id = cq_chat.get("id")
+                        cq_user = callback_query.get("from", {}).get("username", "user")
+
+                        # Acknowledge callback immediately
+                        try:
+                            await client.post(f"{api_url}/answerCallbackQuery", json={"callback_query_id": cq_id})
+                        except Exception:
+                            pass
+
+                        if cq_chat_id and cq_data:
+                            console.print(f"[dim]Button clicked [bold cyan]{cq_data}[/bold cyan] by @{cq_user}[/dim]")
+                            reply, markup = await bot.handle_callback(chat_id=cq_chat_id, data=cq_data)
+                            if reply:
+                                await bot.send_message(chat_id=cq_chat_id, text=reply, reply_markup=markup)
+                        continue
+
+                    # 2. Handle Text Messages and Keyboard Commands
                     message = update.get("message", {})
                     chat = message.get("chat", {})
                     chat_id = chat.get("id")
@@ -118,9 +144,9 @@ async def run_bot_polling(token: str):
 
                     console.print(f"[dim]Received command [bold yellow]{text}[/bold yellow] from @{username}[/dim]")
 
-                    # Process command using TelegramBotService
-                    reply = await bot.handle_command(chat_id=chat_id, command=text)
-                    await bot.send_message(chat_id=chat_id, text=reply)
+                    reply, markup = await bot.handle_command(chat_id=chat_id, command=text)
+                    if reply:
+                        await bot.send_message(chat_id=chat_id, text=reply, reply_markup=markup)
 
             except asyncio.CancelledError:
                 break
